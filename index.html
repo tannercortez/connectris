@@ -7,6 +7,12 @@
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+        :root {
+            --cell: 68px;
+            --gap:  5px;
+            --pad:  12px;
+        }
+
         body {
             background: #060614;
             display: flex;
@@ -69,17 +75,17 @@
         /* ── Game wrapper: padding-top reserves space for preview piece ── */
         #game-wrap {
             position: relative;
-            padding-top: 88px;
+            padding-top: calc(var(--cell) + 20px);
         }
 
         /* ── Preview piece (floats above board in the padding area) ── */
         #preview-piece {
             position: absolute;
-            width: 68px;
-            height: 68px;
+            width: var(--cell);
+            height: var(--cell);
             border-radius: 50%;
             top: 10px;
-            left: 12px;
+            left: var(--pad);
             display: none;
             pointer-events: none;
             z-index: 15;
@@ -115,12 +121,12 @@
         /* ── Board ── */
         #board {
             display: grid;
-            grid-template-columns: repeat(7, 68px);
-            grid-template-rows: repeat(6, 68px);
-            gap: 5px;
+            grid-template-columns: repeat(7, var(--cell));
+            grid-template-rows: repeat(6, var(--cell));
+            gap: var(--gap);
             background: #0b0b26;
             border-radius: 16px;
-            padding: 12px;
+            padding: var(--pad);
             border: 2px solid #14144a;
             box-shadow: 0 0 50px rgba(80,80,255,0.13), inset 0 2px 20px rgba(0,0,30,0.6);
             cursor: pointer;
@@ -130,7 +136,7 @@
 
         /* ── Cells ── */
         .cell {
-            width: 68px; height: 68px;
+            width: var(--cell); height: var(--cell);
             border-radius: 50%;
             background: #050510;
             border: 2px solid #0e0e2e;
@@ -353,6 +359,24 @@
         }
         @keyframes spin { to { transform: rotate(360deg); } }
 
+        /* ── Mobile responsive ── */
+        @media (max-width: 560px) {
+            :root { --cell: 42px; --gap: 4px; --pad: 8px; }
+            body { padding: 10px; }
+            h1 { font-size: 1.3rem; margin-bottom: 12px; }
+            .scoreboard { gap: 28px; margin-bottom: 10px; }
+            .score-num { font-size: 1.6rem; }
+            .score-num.vs { font-size: 1.1rem; }
+            #status { font-size: 0.85rem; padding: 5px 14px; margin-bottom: 5px; }
+            #color-badge { font-size: 0.7rem; }
+            #new-game-btn { margin-top: 12px; padding: 8px 18px; font-size: 0.8rem; }
+            .rules { font-size: 0.65rem; }
+            .overlay-card { padding: 32px 24px; }
+            .overlay-card h2 { font-size: 1.4rem; margin-bottom: 20px; }
+            #win-box { padding: 36px 28px; }
+            #win-msg { font-size: 2.2rem; }
+        }
+
         /* Opponent-left card back button */
         .back-btn {
             margin-top: 24px; padding: 12px 32px;
@@ -465,8 +489,20 @@
    CONSTANTS & BOARD GEOMETRY
    ═══════════════════════════════════════════════════ */
 const ROWS = 6, COLS = 7, EMPTY = 0, RED = 1, BLUE = 2;
-const CELL = 68, GAP = 5, PAD = 12, STRIDE = CELL + GAP;
-const BOARD_TOP = 88; // must match #game-wrap padding-top
+
+// Read board geometry from CSS variables so it works at any screen size
+function boardGeom() {
+    const s      = getComputedStyle(document.documentElement);
+    const cell   = parseFloat(s.getPropertyValue('--cell'));
+    const gap    = parseFloat(s.getPropertyValue('--gap'));
+    const pad    = parseFloat(s.getPropertyValue('--pad'));
+    const stride = cell + gap;
+    // boardTop = distance from top of #game-wrap to top of #board
+    const wrap  = document.getElementById('game-wrap');
+    const board = document.getElementById('board');
+    const boardTop = board ? board.getBoundingClientRect().top - wrap.getBoundingClientRect().top : cell + 20;
+    return { cell, gap, pad, stride, boardTop };
+}
 
 /* ═══════════════════════════════════════════════════
    GAME STATE
@@ -571,8 +607,9 @@ function showPreview(col) {
     if (grid[0][col] !== EMPTY) { hidePreview(); return; }
 
     const p = document.getElementById('preview-piece');
+    const { pad, stride } = boardGeom();
     p.className    = currentPlayer === RED ? 'red' : 'blue';
-    p.style.left   = (PAD + col * STRIDE) + 'px';
+    p.style.left   = (pad + col * stride) + 'px';
     p.style.display = 'block';
 }
 
@@ -677,11 +714,12 @@ function endDraw() {
    ═══════════════════════════════════════════════════ */
 function animateFall(col, targetRow, player, callback) {
     const wrap = document.getElementById('game-wrap');
+    const { cell, pad, stride, boardTop } = boardGeom();
 
     const piece = document.createElement('div');
     piece.style.cssText = `
-        position:absolute; width:${CELL}px; height:${CELL}px;
-        border-radius:50%; left:${PAD + col*STRIDE}px; top:10px;
+        position:absolute; width:${cell}px; height:${cell}px;
+        border-radius:50%; left:${pad + col*stride}px; top:10px;
         z-index:10; pointer-events:none; overflow:hidden;
     `;
     if (player === RED) {
@@ -699,7 +737,7 @@ function animateFall(col, targetRow, player, callback) {
     piece.appendChild(gloss);
     wrap.appendChild(piece);
 
-    const endTop  = BOARD_TOP + PAD + targetRow * STRIDE;
+    const endTop  = boardTop + pad + targetRow * stride;
     const dur     = (0.08 + (targetRow + 1) * 0.068).toFixed(3);
     let   done    = false;
 
