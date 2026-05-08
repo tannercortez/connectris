@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connectris</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: #060614;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            color: #fff;
+            user-select: none;
+            padding: 20px;
+        }
+
+        h1 {
+            font-size: clamp(1.6rem, 5vw, 2.6rem);
+            font-weight: 900;
+            margin-bottom: 20px;
+            letter-spacing: -1px;
+        }
+
+        .t { color: #ff4444; text-shadow: 0 0 20px #ff444466; }
+        .c { color: #4488ff; text-shadow: 0 0 20px #4488ff66; }
+
+        /* ── Scoreboard ── */
+        .scoreboard {
+            display: flex;
+            gap: 50px;
+            margin-bottom: 14px;
+            align-items: center;
+        }
+        .score-item { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+        .score-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 2px; color: #444; }
+        .score-num { font-size: 2.2rem; font-weight: 900; line-height: 1; }
+        .score-num.red  { color: #ff4444; }
+        .score-num.blue { color: #4488ff; }
+        .score-num.vs   { color: #222244; font-size: 1.4rem; }
+
+        /* ── Status pill ── */
+        #status {
+            font-size: 1.05rem;
+            font-weight: 700;
+            margin-bottom: 6px;
+            padding: 7px 22px;
+            border-radius: 30px;
+            letter-spacing: 0.3px;
+            transition: all 0.3s;
+        }
+        #status.red  { background: rgba(255,68,68,0.12);  border: 2px solid rgba(255,68,68,0.35);  color: #ff8888; }
+        #status.blue { background: rgba(68,136,255,0.12); border: 2px solid rgba(68,136,255,0.35); color: #88aaff; }
+
+        /* Small badge: "You are Red / Blue" shown in multiplayer */
+        #color-badge {
+            font-size: 0.75rem;
+            color: #444;
+            margin-bottom: 10px;
+            min-height: 18px;
+            letter-spacing: 0.3px;
+        }
+
+        /* ── Game wrapper: padding-top reserves space for preview piece ── */
+        #game-wrap {
+            position: relative;
+            padding-top: 88px;
+        }
+
+        /* ── Preview piece (floats above board in the padding area) ── */
+        #preview-piece {
+            position: absolute;
+            width: 68px;
+            height: 68px;
+            border-radius: 50%;
+            top: 10px;
+            left: 12px;
+            display: none;
+            pointer-events: none;
+            z-index: 15;
+            overflow: hidden;
+            transition: left 0.07s ease;
+        }
+        #preview-piece::after {
+            content: '';
+            position: absolute;
+            top: 13%; left: 20%;
+            width: 30%; height: 24%;
+            background: rgba(255,255,255,0.11);
+            border-radius: 50%;
+            transform: rotate(-25deg);
+        }
+        #preview-piece.red {
+            background: radial-gradient(circle at 38% 35%, #ff8080, #dd1111 55%, #880000);
+            border: 2px solid #ff5555;
+            box-shadow: 0 0 18px rgba(255,68,68,0.6), inset 0 2px 8px rgba(0,0,0,0.35);
+            animation: previewBob 0.9s ease-in-out infinite;
+        }
+        #preview-piece.blue {
+            background: radial-gradient(circle at 38% 35%, #80aaff, #1144dd 55%, #002299);
+            border: 2px solid #4477ff;
+            box-shadow: 0 0 18px rgba(68,136,255,0.6), inset 0 2px 8px rgba(0,0,0,0.35);
+            animation: previewBob 0.9s ease-in-out infinite;
+        }
+        @keyframes previewBob {
+            0%, 100% { transform: translateY(0px); }
+            50%       { transform: translateY(8px); }
+        }
+
+        /* ── Board ── */
+        #board {
+            display: grid;
+            grid-template-columns: repeat(7, 68px);
+            grid-template-rows: repeat(6, 68px);
+            gap: 5px;
+            background: #0b0b26;
+            border-radius: 16px;
+            padding: 12px;
+            border: 2px solid #14144a;
+            box-shadow: 0 0 50px rgba(80,80,255,0.13), inset 0 2px 20px rgba(0,0,30,0.6);
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        #board.locked { cursor: not-allowed; opacity: 0.72; }
+
+        /* ── Cells ── */
+        .cell {
+            width: 68px; height: 68px;
+            border-radius: 50%;
+            background: #050510;
+            border: 2px solid #0e0e2e;
+            position: relative;
+            overflow: hidden;
+        }
+        .cell::after {
+            content: '';
+            position: absolute;
+            top: 13%; left: 20%;
+            width: 30%; height: 24%;
+            background: rgba(255,255,255,0.11);
+            border-radius: 50%;
+            transform: rotate(-25deg);
+            pointer-events: none;
+        }
+        .cell.red {
+            background: radial-gradient(circle at 38% 35%, #ff8080, #dd1111 55%, #880000);
+            border-color: #ff5555;
+            box-shadow: 0 0 18px rgba(255,68,68,0.6), inset 0 2px 8px rgba(0,0,0,0.35);
+        }
+        .cell.blue {
+            background: radial-gradient(circle at 38% 35%, #80aaff, #1144dd 55%, #002299);
+            border-color: #4477ff;
+            box-shadow: 0 0 18px rgba(68,136,255,0.6), inset 0 2px 8px rgba(0,0,0,0.35);
+        }
+        .cell.col-lit   { background: #0e0e28; border-color: #1c1c50; }
+        .cell.landing   { animation: land 0.38s ease-out; }
+        .cell.clearing  { animation: flashOut 0.45s ease-out forwards; }
+        .cell.winning   { animation: winPulse 0.55s ease-in-out infinite alternate; }
+
+        @keyframes land {
+            0%   { transform: scale(1,1);     }
+            22%  { transform: scale(1.2,0.8); }
+            50%  { transform: scale(0.9,1.1); }
+            75%  { transform: scale(1.05,.97);}
+            100% { transform: scale(1,1);     }
+        }
+        @keyframes flashOut {
+            0%   { transform: scale(1);    opacity: 1; filter: brightness(1);   }
+            40%  { transform: scale(1.18); filter: brightness(2.2); }
+            100% { transform: scale(0);    opacity: 0; }
+        }
+        @keyframes winPulse {
+            from { transform: scale(1);    filter: brightness(1);   }
+            to   { transform: scale(1.12); filter: brightness(1.5); }
+        }
+
+        /* ── Buttons / footer ── */
+        #new-game-btn {
+            margin-top: 18px;
+            padding: 10px 26px;
+            font-size: 0.88rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            background: rgba(255,255,255,0.06);
+            border: 2px solid rgba(255,255,255,0.11);
+            border-radius: 12px;
+            color: #777;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        #new-game-btn:hover { background: rgba(255,255,255,0.11); border-color: rgba(255,255,255,0.22); color: #ccc; }
+
+        .rules { margin-top: 13px; font-size: 0.72rem; color: #2a2a4a; letter-spacing: 0.3px; text-align: center; }
+
+        /* ── Win overlay ── */
+        #win-overlay {
+            display: none;
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.78);
+            z-index: 20;
+            align-items: center; justify-content: center;
+        }
+        #win-overlay.show { display: flex; }
+        #win-box {
+            background: #0c0c22;
+            border-radius: 24px;
+            padding: 50px 80px;
+            text-align: center;
+            border: 3px solid;
+            animation: modalIn 0.38s cubic-bezier(0.22,1,0.36,1);
+        }
+        #win-box.red  { border-color: #ff4444; box-shadow: 0 0 80px rgba(255,68,68,0.45); }
+        #win-box.blue { border-color: #4488ff; box-shadow: 0 0 80px rgba(68,136,255,0.45); }
+        #win-box.draw { border-color: #8888aa; box-shadow: 0 0 60px rgba(136,136,180,0.35); }
+        #win-msg { font-size: 3rem; font-weight: 900; margin-bottom: 8px; }
+        #win-box.red  #win-msg { color: #ff4444; }
+        #win-box.blue #win-msg { color: #4488ff; }
+        #win-box.draw #win-msg { color: #8888bb; }
+        #win-sub { color: #444; font-size: 0.9rem; margin-bottom: 28px; }
+        #play-again {
+            padding: 13px 38px; font-size: 1rem; font-weight: 700;
+            background: linear-gradient(135deg, #ff4444 0%, #4488ff 100%);
+            border: none; border-radius: 12px; color: #fff;
+            cursor: pointer; letter-spacing: 0.5px; transition: all 0.2s;
+        }
+        #play-again:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 24px rgba(100,100,255,0.4); }
+        #play-again:disabled { opacity: 0.45; cursor: not-allowed; }
+        #rematch-status { display: none; font-size: 0.82rem; color: #555; margin-top: 12px; }
+
+        @keyframes modalIn {
+            from { transform: scale(0.4); opacity: 0; }
+            to   { transform: scale(1);   opacity: 1; }
+        }
+
+        /* ═══════════════════════════════════════════
+           LOBBY / ONLINE OVERLAYS
+           ═══════════════════════════════════════════ */
+
+        .screen-overlay {
+            position: fixed; inset: 0;
+            background: rgba(6,6,20,0.97);
+            z-index: 50;
+            display: flex; align-items: center; justify-content: center;
+            padding: 20px;
+        }
+
+        .overlay-card {
+            background: #0c0c22;
+            border: 2px solid #1e1e50;
+            border-radius: 24px;
+            padding: 44px 52px;
+            text-align: center;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 0 60px rgba(80,80,255,0.18);
+        }
+        .overlay-card h2 {
+            font-size: 1.7rem; font-weight: 900;
+            margin-bottom: 28px; color: #fff;
+        }
+        .overlay-card p { color: #555; font-size: 0.88rem; margin-bottom: 16px; }
+
+        /* Lobby option buttons */
+        .mp-btn {
+            display: flex; flex-direction: column; align-items: center;
+            width: 100%; padding: 15px 20px;
+            border-radius: 14px; border: 2px solid;
+            cursor: pointer; transition: all 0.18s;
+            margin-bottom: 10px;
+        }
+        .mp-btn .b-icon  { font-size: 1.4rem; }
+        .mp-btn .b-title { font-size: 0.95rem; font-weight: 700; margin-top: 4px; }
+        .mp-btn .b-sub   { font-size: 0.72rem; margin-top: 2px; opacity: 0.55; }
+
+        .mp-btn.online {
+            background: rgba(68,136,255,0.1); border-color: rgba(68,136,255,0.35); color: #88aaff;
+        }
+        .mp-btn.online:hover {
+            background: rgba(68,136,255,0.2); border-color: rgba(68,136,255,0.6);
+            transform: translateY(-1px);
+        }
+        .mp-btn.local {
+            background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.12); color: #777;
+        }
+        .mp-btn.local:hover {
+            background: rgba(255,255,255,0.09); border-color: rgba(255,255,255,0.25); color: #aaa;
+            transform: translateY(-1px);
+        }
+
+        .or-row { color: #2a2a4a; font-size: 0.74rem; margin: 10px 0; letter-spacing: 1px; }
+
+        .join-row { display: flex; gap: 8px; margin-bottom: 10px; }
+
+        #room-input {
+            flex: 1;
+            background: rgba(255,255,255,0.05);
+            border: 2px solid rgba(255,255,255,0.12);
+            border-radius: 10px;
+            color: #fff; font-size: 1rem;
+            padding: 10px 12px;
+            text-transform: uppercase; letter-spacing: 3px;
+            font-family: monospace; outline: none;
+            transition: border-color 0.2s;
+        }
+        #room-input:focus { border-color: rgba(68,136,255,0.5); }
+        #room-input::placeholder { letter-spacing: 1px; color: #333; text-transform: none; font-family: 'Segoe UI', system-ui; }
+
+        .join-go {
+            padding: 10px 18px;
+            background: rgba(68,136,255,0.15); border: 2px solid rgba(68,136,255,0.35);
+            border-radius: 10px; color: #88aaff;
+            font-size: 0.9rem; font-weight: 700;
+            cursor: pointer; transition: all 0.2s; white-space: nowrap;
+        }
+        .join-go:hover { background: rgba(68,136,255,0.28); border-color: rgba(68,136,255,0.6); }
+
+        #lobby-error { color: #ff6666; font-size: 0.82rem; min-height: 18px; margin-top: 8px; }
+
+        /* Waiting screen */
+        .share-box {
+            display: flex; align-items: center; gap: 8px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px; padding: 10px 14px;
+            margin: 14px 0; text-align: left;
+        }
+        #share-url-text {
+            flex: 1; font-family: monospace; font-size: 0.8rem;
+            color: #7799ee; word-break: break-all;
+        }
+        #copy-btn {
+            background: rgba(68,136,255,0.18); border: 1px solid rgba(68,136,255,0.35);
+            border-radius: 6px; color: #88aaff;
+            padding: 5px 11px; font-size: 0.78rem;
+            cursor: pointer; white-space: nowrap; flex-shrink: 0;
+            transition: all 0.18s;
+        }
+        #copy-btn:hover { background: rgba(68,136,255,0.32); }
+        #copy-btn.copied { color: #55ee99; border-color: rgba(68,255,136,0.35); }
+
+        .spinner {
+            width: 36px; height: 36px;
+            border: 3px solid rgba(68,136,255,0.18);
+            border-top-color: #4488ff;
+            border-radius: 50%;
+            animation: spin 0.9s linear infinite;
+            margin: 22px auto;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Opponent-left card back button */
+        .back-btn {
+            margin-top: 24px; padding: 12px 32px;
+            background: rgba(68,136,255,0.12); border: 2px solid rgba(68,136,255,0.35);
+            border-radius: 12px; color: #88aaff;
+            font-size: 0.95rem; font-weight: 700;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .back-btn:hover { background: rgba(68,136,255,0.22); border-color: rgba(68,136,255,0.6); }
+    </style>
+</head>
+<body>
+
+<!-- ═══════════ LOBBY OVERLAY ═══════════ -->
+<div id="lobby-overlay" class="screen-overlay">
+    <div class="overlay-card">
+        <h2><span class="t">CONNECT</span><span class="c">TRIS</span></h2>
+
+        <button class="mp-btn online" onclick="onCreateRoom()">
+            <span class="b-icon">🌐</span>
+            <span class="b-title">Create Online Room</span>
+            <span class="b-sub">Share a link — play with a friend anywhere</span>
+        </button>
+
+        <div class="or-row">— or join a room —</div>
+
+        <div class="join-row">
+            <input id="room-input" placeholder="Room code" maxlength="6" spellcheck="false"
+                   onkeydown="if(event.key==='Enter') onJoinRoom()">
+            <button class="join-go" onclick="onJoinRoom()">Join</button>
+        </div>
+
+        <div class="or-row">— or —</div>
+
+        <button class="mp-btn local" onclick="onLocalPlay()">
+            <span class="b-icon">👥</span>
+            <span class="b-title">Play Locally</span>
+            <span class="b-sub">Two players, one device</span>
+        </button>
+
+        <div id="lobby-error"></div>
+    </div>
+</div>
+
+<!-- ═══════════ WAITING OVERLAY ═══════════ -->
+<div id="waiting-overlay" class="screen-overlay" style="display:none">
+    <div class="overlay-card">
+        <h2>Room Created!</h2>
+        <p>Send this link to your friend:</p>
+        <div class="share-box">
+            <span id="share-url-text"></span>
+            <button id="copy-btn" onclick="copyLink()">Copy</button>
+        </div>
+        <div class="spinner"></div>
+        <p>Waiting for opponent to join…</p>
+    </div>
+</div>
+
+<!-- ═══════════ OPPONENT LEFT OVERLAY ═══════════ -->
+<div id="opp-left-overlay" class="screen-overlay" style="display:none">
+    <div class="overlay-card">
+        <h2>Opponent Left</h2>
+        <p>Your opponent disconnected from the game.</p>
+        <button class="back-btn" onclick="goToLobby()">← Back to Lobby</button>
+    </div>
+</div>
+
+<!-- ═══════════ GAME ═══════════ -->
+<h1><span class="t">CONNECT</span><span class="c">TRIS</span></h1>
+
+<div class="scoreboard">
+    <div class="score-item">
+        <span class="score-label">Red</span>
+        <span class="score-num red" id="red-score">0</span>
+    </div>
+    <div class="score-item"><span class="score-num vs">VS</span></div>
+    <div class="score-item">
+        <span class="score-label">Blue</span>
+        <span class="score-num blue" id="blue-score">0</span>
+    </div>
+</div>
+
+<div id="status" class="red">🔴 Red's Turn</div>
+<div id="color-badge"></div>
+
+<div id="game-wrap">
+    <div id="preview-piece"></div>
+    <div id="board"></div>
+</div>
+
+<button id="new-game-btn" onclick="handleNewGame()">↺ New Game</button>
+
+<p class="rules">Click a column to drop &nbsp;·&nbsp; Full rows vanish like Tetris &nbsp;·&nbsp; Get 4 in a row to win</p>
+
+<!-- ═══════════ WIN OVERLAY ═══════════ -->
+<div id="win-overlay">
+    <div id="win-box">
+        <div id="win-msg"></div>
+        <div id="win-sub"></div>
+        <button id="play-again" onclick="handlePlayAgain()">Play Again</button>
+        <div id="rematch-status"></div>
+    </div>
+</div>
+
+<!-- Socket.io is served automatically by the Express server -->
+<script src="/socket.io/socket.io.js"></script>
+
+<script>
+/* ═══════════════════════════════════════════════════
+   CONSTANTS & BOARD GEOMETRY
+   ═══════════════════════════════════════════════════ */
+const ROWS = 6, COLS = 7, EMPTY = 0, RED = 1, BLUE = 2;
+const CELL = 68, GAP = 5, PAD = 12, STRIDE = CELL + GAP;
+const BOARD_TOP = 88; // must match #game-wrap padding-top
+
+/* ═══════════════════════════════════════════════════
+   GAME STATE
+   ═══════════════════════════════════════════════════ */
+let grid, currentPlayer, gameOver, animating, lastPlaced;
+let hoveredCol = -1;
+const scores = { [RED]: 0, [BLUE]: 0 };
+
+// Multiplayer state
+let socket      = null;
+let isOnline    = false;  // true when playing via server
+let myColor     = null;   // RED or BLUE assigned by server
+
+/* ═══════════════════════════════════════════════════
+   INIT
+   ═══════════════════════════════════════════════════ */
+function initState() {
+    grid          = Array.from({length: ROWS}, () => Array(COLS).fill(EMPTY));
+    currentPlayer = RED;
+    gameOver      = false;
+    animating     = false;
+    lastPlaced    = null;
+    hoveredCol    = -1;
+}
+
+function newGame() {
+    initState();
+    document.getElementById('win-overlay').classList.remove('show');
+    document.getElementById('rematch-status').style.display = 'none';
+    document.getElementById('play-again').disabled    = false;
+    document.getElementById('play-again').textContent = 'Play Again';
+    hidePreview();
+    renderAll();
+    updateStatus();
+}
+
+/* ═══════════════════════════════════════════════════
+   BUILD BOARD (once on page load)
+   ═══════════════════════════════════════════════════ */
+function buildBoard() {
+    const board = document.getElementById('board');
+    board.innerHTML = '';
+    for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+            const el = document.createElement('div');
+            el.className    = 'cell';
+            el.id           = `c${r}_${c}`;
+            el.onclick      = () => handleClick(c);
+            el.onmouseenter = () => { hoveredCol = c; showPreview(c); };
+            board.appendChild(el);
+        }
+    }
+    board.onmouseleave = () => { hoveredCol = -1; clearColLit(); hidePreview(); };
+}
+
+/* ═══════════════════════════════════════════════════
+   CLICK ROUTING  (local vs online)
+   ═══════════════════════════════════════════════════ */
+function handleClick(col) {
+    if (isOnline) {
+        // Only send if it's genuinely our turn and the board is unlocked
+        if (currentPlayer !== myColor || gameOver || animating) return;
+        socket.emit('drop', col);
+        // Don't process locally — wait for server echo via 'move' event
+    } else {
+        drop(col);
+    }
+}
+
+function handleNewGame() {
+    if (isOnline) {
+        goToLobby();
+    } else {
+        newGame();
+    }
+}
+
+function handlePlayAgain() {
+    if (isOnline) {
+        document.getElementById('play-again').disabled    = true;
+        document.getElementById('play-again').textContent = 'Waiting…';
+        showRematchStatus('Waiting for opponent…');
+        socket.emit('vote_restart');
+    } else {
+        newGame();
+    }
+}
+
+/* ═══════════════════════════════════════════════════
+   PREVIEW PIECE
+   ═══════════════════════════════════════════════════ */
+function showPreview(col) {
+    clearColLit();
+    // Don't show preview when locked
+    if (gameOver || animating) return;
+    if (isOnline && currentPlayer !== myColor) return;
+
+    for (let r = 0; r < ROWS; r++)
+        if (grid[r][col] === EMPTY)
+            document.getElementById(`c${r}_${col}`).classList.add('col-lit');
+
+    if (grid[0][col] !== EMPTY) { hidePreview(); return; }
+
+    const p = document.getElementById('preview-piece');
+    p.className    = currentPlayer === RED ? 'red' : 'blue';
+    p.style.left   = (PAD + col * STRIDE) + 'px';
+    p.style.display = 'block';
+}
+
+function hidePreview() {
+    document.getElementById('preview-piece').style.display = 'none';
+}
+
+function clearColLit() {
+    document.querySelectorAll('.col-lit').forEach(el => el.classList.remove('col-lit'));
+}
+
+/* ═══════════════════════════════════════════════════
+   DROP / GAME LOGIC
+   (called directly for local play; called on 'move'
+    event echo from server for online play)
+   ═══════════════════════════════════════════════════ */
+function drop(col) {
+    if (gameOver || animating) return;
+
+    let targetRow = -1;
+    for (let r = ROWS - 1; r >= 0; r--)
+        if (grid[r][col] === EMPTY) { targetRow = r; break; }
+    if (targetRow === -1) return;
+
+    animating = true;
+    clearColLit();
+    hidePreview();
+
+    animateFall(col, targetRow, currentPlayer, () => {
+        grid[targetRow][col] = currentPlayer;
+        lastPlaced = { row: targetRow, col };
+
+        // Check win
+        const win = findWin();
+        if (win) {
+            scores[currentPlayer]++;
+            gameOver  = true;
+            animating = false;
+            renderAll(win.cells, []);
+            updateScores();
+            const loser = currentPlayer === RED ? BLUE : RED;
+            const [type, msg, sub] = winMessage(currentPlayer, loser);
+            setTimeout(() => showWinModal(type, msg, sub), 750);
+            return;
+        }
+
+        // Find full rows
+        const fullRows = [];
+        for (let r = 0; r < ROWS; r++)
+            if (grid[r].every(v => v !== EMPTY)) fullRows.push(r);
+
+        if (fullRows.length > 0) {
+            renderAll([], fullRows);
+            setTimeout(() => {
+                for (const r of [...fullRows].sort((a,b) => b-a)) {
+                    grid.splice(r, 1);
+                    grid.unshift(Array(COLS).fill(EMPTY));
+                }
+                lastPlaced = null;
+
+                const winAfter = findWin();
+                if (winAfter) {
+                    scores[currentPlayer]++;
+                    gameOver  = true;
+                    animating = false;
+                    renderAll(winAfter.cells, []);
+                    updateScores();
+                    const loser = currentPlayer === RED ? BLUE : RED;
+                    const [type, msg, sub] = winMessage(currentPlayer, loser);
+                    setTimeout(() => showWinModal(type, msg, sub), 750);
+                    return;
+                }
+
+                currentPlayer = currentPlayer === RED ? BLUE : RED;
+                animating = false;
+                renderAll();
+                updateStatus();
+
+                if (isDraw()) { endDraw(); return; }
+                if (hoveredCol >= 0) showPreview(hoveredCol);
+            }, 520);
+
+        } else {
+            currentPlayer = currentPlayer === RED ? BLUE : RED;
+            animating = false;
+            renderAll();
+            updateStatus();
+
+            if (isDraw()) { endDraw(); return; }
+            if (hoveredCol >= 0) showPreview(hoveredCol);
+        }
+    });
+}
+
+function endDraw() {
+    gameOver = true;
+    setTimeout(() => showWinModal('draw', "It's a Draw!", 'The board is full.'), 400);
+}
+
+/* ═══════════════════════════════════════════════════
+   FALL ANIMATION
+   ═══════════════════════════════════════════════════ */
+function animateFall(col, targetRow, player, callback) {
+    const wrap = document.getElementById('game-wrap');
+
+    const piece = document.createElement('div');
+    piece.style.cssText = `
+        position:absolute; width:${CELL}px; height:${CELL}px;
+        border-radius:50%; left:${PAD + col*STRIDE}px; top:10px;
+        z-index:10; pointer-events:none; overflow:hidden;
+    `;
+    if (player === RED) {
+        piece.style.background = 'radial-gradient(circle at 38% 35%, #ff8080, #dd1111 55%, #880000)';
+        piece.style.border     = '2px solid #ff5555';
+        piece.style.boxShadow  = '0 0 18px rgba(255,68,68,0.6), inset 0 2px 8px rgba(0,0,0,0.35)';
+    } else {
+        piece.style.background = 'radial-gradient(circle at 38% 35%, #80aaff, #1144dd 55%, #002299)';
+        piece.style.border     = '2px solid #4477ff';
+        piece.style.boxShadow  = '0 0 18px rgba(68,136,255,0.6), inset 0 2px 8px rgba(0,0,0,0.35)';
+    }
+    // Gloss
+    const gloss = document.createElement('div');
+    gloss.style.cssText = 'position:absolute;top:13%;left:20%;width:30%;height:24%;background:rgba(255,255,255,0.11);border-radius:50%;transform:rotate(-25deg);';
+    piece.appendChild(gloss);
+    wrap.appendChild(piece);
+
+    const endTop  = BOARD_TOP + PAD + targetRow * STRIDE;
+    const dur     = (0.08 + (targetRow + 1) * 0.068).toFixed(3);
+    let   done    = false;
+
+    piece.getBoundingClientRect(); // force reflow
+    piece.style.transition = `top ${dur}s ease-in`;
+    piece.style.top        = endTop + 'px';
+
+    const finish = () => {
+        if (done) return;
+        done = true;
+        piece.remove();
+        callback();
+    };
+    piece.addEventListener('transitionend', finish, { once: true });
+    setTimeout(finish, (parseFloat(dur) + 0.15) * 1000); // safety
+}
+
+/* ═══════════════════════════════════════════════════
+   WIN / DRAW DETECTION
+   ═══════════════════════════════════════════════════ */
+function findWin() {
+    const dirs = [[0,1],[1,0],[1,1],[1,-1]];
+    for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+            const p = grid[r][c];
+            if (!p) continue;
+            for (const [dr,dc] of dirs) {
+                const cells = [[r,c]];
+                for (let i = 1; i < 4; i++) {
+                    const nr = r+dr*i, nc = c+dc*i;
+                    if (nr>=0 && nr<ROWS && nc>=0 && nc<COLS && grid[nr][nc]===p)
+                        cells.push([nr,nc]);
+                    else break;
+                }
+                if (cells.length >= 4) return { player: p, cells };
+            }
+        }
+    }
+    return null;
+}
+
+function isDraw() {
+    return grid[0].every(v => v !== EMPTY);
+}
+
+/* ═══════════════════════════════════════════════════
+   RENDER
+   ═══════════════════════════════════════════════════ */
+function renderAll(winCells = [], clearRows = []) {
+    const winSet   = new Set(winCells.map(([r,c]) => `${r},${c}`));
+    const clearSet = new Set(clearRows);
+
+    for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+            const el = document.getElementById(`c${r}_${c}`);
+            const v  = grid[r][c];
+            el.className = 'cell';
+            if (v === RED)  el.classList.add('red');
+            if (v === BLUE) el.classList.add('blue');
+            if (clearSet.has(r) && v !== EMPTY) el.classList.add('clearing');
+            if (winSet.has(`${r},${c}`))         el.classList.add('winning');
+            if (lastPlaced && r===lastPlaced.row && c===lastPlaced.col
+                && !winCells.length && !clearRows.length)
+                el.classList.add('landing');
+        }
+    }
+}
+
+/* ═══════════════════════════════════════════════════
+   UI HELPERS
+   ═══════════════════════════════════════════════════ */
+function updateStatus() {
+    const el = document.getElementById('status');
+    if (isOnline) {
+        const mine = currentPlayer === myColor;
+        el.className   = currentPlayer === RED ? 'red' : 'blue';
+        el.textContent = mine
+            ? (currentPlayer === RED ? '🔴 Your Turn' : '🔵 Your Turn')
+            : (currentPlayer === RED ? "🔴 Opponent's Turn" : "🔵 Opponent's Turn");
+    } else {
+        el.className   = currentPlayer === RED ? 'red' : 'blue';
+        el.textContent = currentPlayer === RED ? "🔴 Red's Turn" : "🔵 Blue's Turn";
+    }
+    updateBoardLock();
+}
+
+function updateBoardLock() {
+    const locked = isOnline && !gameOver && currentPlayer !== myColor;
+    document.getElementById('board').classList.toggle('locked', locked);
+}
+
+function updateScores() {
+    document.getElementById('red-score').textContent  = scores[RED];
+    document.getElementById('blue-score').textContent = scores[BLUE];
+}
+
+function winMessage(winner, loser) {
+    if (isOnline) {
+        if (winner === myColor) return ['red'.replace('red', winner===RED?'red':'blue'), '🎉 You Win!', 'You got 4 in a row!'];
+        return [winner === RED ? 'red' : 'blue', '😔 You Lost', 'Opponent got 4 in a row.'];
+    }
+    return [
+        winner === RED ? 'red' : 'blue',
+        winner === RED ? '🔴 Red Wins!' : '🔵 Blue Wins!',
+        'Got 4 in a row!'
+    ];
+}
+
+function showWinModal(type, msg, sub) {
+    document.getElementById('win-box').className    = type;
+    document.getElementById('win-msg').textContent  = msg;
+    document.getElementById('win-sub').textContent  = sub;
+    document.getElementById('win-overlay').classList.add('show');
+}
+
+function showRematchStatus(text) {
+    const el = document.getElementById('rematch-status');
+    el.textContent   = text;
+    el.style.display = 'block';
+}
+
+/* ═══════════════════════════════════════════════════
+   MULTIPLAYER — SOCKET SETUP
+   ═══════════════════════════════════════════════════ */
+function connectSocket() {
+    // io() connects to whichever server served this page
+    socket = io();
+
+    socket.on('room_created', roomId => {
+        const url = `${location.origin}${location.pathname}?room=${roomId}`;
+        document.getElementById('share-url-text').textContent = url;
+        showWaiting();
+    });
+
+    socket.on('game_start', color => {
+        myColor  = color;
+        isOnline = true;
+        hideWaiting();
+        hideLobby();
+        // Update URL so refreshing keeps the room code
+        if (!location.search.includes('room=')) {
+            history.replaceState(null, '', location.pathname);
+        }
+        newGame();
+        // Show which color the player is
+        document.getElementById('color-badge').textContent =
+            `You are playing as ${color === RED ? '🔴 Red' : '🔵 Blue'}`;
+        document.getElementById('color-badge').style.display = 'block';
+        // Update new-game button to "Leave"
+        document.getElementById('new-game-btn').textContent = '← Leave Room';
+    });
+
+    socket.on('move', col => drop(col));       // server echoes moves to both players
+
+    socket.on('join_error', msg => {
+        document.getElementById('lobby-error').textContent = msg;
+        socket.disconnect();
+        socket = null;
+    });
+
+    socket.on('opponent_wants_restart', () => {
+        if (!gameOver) return;
+        showRematchStatus('Opponent wants a rematch!');
+        document.getElementById('play-again').disabled    = false;
+        document.getElementById('play-again').textContent = '⚔ Rematch!';
+    });
+
+    socket.on('game_restart', () => {
+        newGame();
+    });
+
+    socket.on('opponent_left', () => {
+        document.getElementById('win-overlay').classList.remove('show');
+        document.getElementById('opp-left-overlay').style.display = 'flex';
+    });
+
+    socket.on('disconnect', () => {
+        if (isOnline) {
+            document.getElementById('opp-left-overlay').style.display = 'flex';
+        }
+    });
+}
+
+/* ═══════════════════════════════════════════════════
+   LOBBY ACTIONS
+   ═══════════════════════════════════════════════════ */
+function onCreateRoom() {
+    document.getElementById('lobby-error').textContent = '';
+    connectSocket();
+    socket.on('connect', () => socket.emit('create_room'));
+}
+
+function onJoinRoom() {
+    const code = document.getElementById('room-input').value.trim().toUpperCase();
+    if (!code) { document.getElementById('lobby-error').textContent = 'Enter a room code.'; return; }
+    document.getElementById('lobby-error').textContent = '';
+    connectSocket();
+    socket.on('connect', () => socket.emit('join_room', code));
+}
+
+function onLocalPlay() {
+    isOnline = false;
+    myColor  = null;
+    hideLobby();
+    newGame();
+}
+
+function goToLobby() {
+    // Disconnect and reset everything
+    if (socket) { socket.disconnect(); socket = null; }
+    isOnline = false;
+    myColor  = null;
+    scores[RED] = 0;
+    scores[BLUE] = 0;
+    updateScores();
+    document.getElementById('color-badge').style.display = 'none';
+    document.getElementById('new-game-btn').textContent  = '↺ New Game';
+    document.getElementById('opp-left-overlay').style.display = 'none';
+    document.getElementById('win-overlay').classList.remove('show');
+    // Strip room code from URL
+    history.replaceState(null, '', location.pathname);
+    showLobby();
+    newGame();
+}
+
+/* ── Overlay visibility helpers ── */
+function showLobby()   { document.getElementById('lobby-overlay').style.display   = 'flex'; }
+function hideLobby()   { document.getElementById('lobby-overlay').style.display   = 'none'; }
+function showWaiting() { document.getElementById('waiting-overlay').style.display = 'flex'; }
+function hideWaiting() { document.getElementById('waiting-overlay').style.display = 'none'; }
+
+function copyLink() {
+    const url  = document.getElementById('share-url-text').textContent;
+    const btn  = document.getElementById('copy-btn');
+    navigator.clipboard.writeText(url).then(() => {
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+    });
+}
+
+/* ═══════════════════════════════════════════════════
+   STARTUP
+   ═══════════════════════════════════════════════════ */
+buildBoard();
+initState();
+renderAll();
+updateStatus();
+
+// Auto-join if URL contains ?room=XXXXXX
+const roomFromUrl = new URLSearchParams(location.search).get('room');
+if (roomFromUrl) {
+    hideLobby(); // hide lobby while connecting
+    document.getElementById('waiting-overlay').style.display = 'flex';
+    document.getElementById('waiting-overlay').querySelector('p').textContent = 'Joining room…';
+    document.getElementById('waiting-overlay').querySelector('.spinner').style.display = 'block';
+    // Remove the share box — player is joining, not hosting
+    document.getElementById('waiting-overlay').querySelector('.share-box').style.display = 'none';
+    connectSocket();
+    socket.on('connect', () => socket.emit('join_room', roomFromUrl));
+}
+</script>
+</body>
+</html>
