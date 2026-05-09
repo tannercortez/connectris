@@ -493,6 +493,8 @@
             #color-badge { font-size: 0.7rem; }
             #flip-count  { font-size: 1.6rem; }
             #flip-timer  { padding: 6px 14px; }
+            .rules .rule-sep { display: none; }
+            .rules span { display: block; text-align: center; }
             #new-game-btn { margin-top: 12px; padding: 8px 18px; font-size: 0.8rem; }
             .rules { font-size: 0.65rem; }
             .overlay-card { padding: 32px 24px; }
@@ -599,7 +601,9 @@
 
 <button id="new-game-btn" onclick="handleNewGame()">↺ New Game</button>
 
-<p class="rules">Click a column to drop &nbsp;·&nbsp; Full Rows and Columns vanish like Tetris &nbsp;·&nbsp; Get 4 in a row to win</p>
+<p class="rules">
+    <span>Click a column to drop</span><span class="rule-sep"> &nbsp;·&nbsp; </span><span>Full Rows and Columns vanish like Tetris</span><span class="rule-sep"> &nbsp;·&nbsp; </span><span>Get 4 in a row to win</span>
+</p>
 
 <!-- ═══════════ WIN OVERLAY ═══════════ -->
 <div id="win-overlay">
