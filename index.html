@@ -401,36 +401,33 @@
             to   { transform: scale(1.35); }
         }
 
-        /* Balls rolling/falling after the board flips */
-        .cell.flip-drop {
-            animation: flipDrop var(--drop-dur, 0.6s) forwards;
+        /* Gravity drop after flip — overlay falls DOWNWARD from its starting position */
+        .grav-drop {
+            animation: gravDrop var(--grav-dur, 0.5s) forwards;
         }
-        @keyframes flipDrop {
-            /* Start above, accelerate downward like gravity */
+        @keyframes gravDrop {
             0% {
-                transform: translateY(calc(-1 * var(--fall-dist, 60px))) scaleY(0.75);
-                opacity: 0;
-                animation-timing-function: cubic-bezier(0.55, 0, 0.9, 0.4);
+                transform: translateY(0) scaleY(1);
+                animation-timing-function: cubic-bezier(0.55, 0, 0.85, 0.35);
             }
-            /* First impact — squash */
-            68% {
-                transform: translateY(0) scaleY(0.78);
-                opacity: 1;
+            /* First impact: squash on landing */
+            66% {
+                transform: translateY(var(--grav-dist, 40px)) scaleY(0.78);
                 animation-timing-function: cubic-bezier(0.215, 0.61, 0.355, 1);
             }
             /* Bounce up */
-            80% {
-                transform: translateY(calc(-0.14 * var(--fall-dist, 60px))) scaleY(1.1);
-                animation-timing-function: cubic-bezier(0.55, 0, 0.9, 0.4);
+            79% {
+                transform: translateY(calc(var(--grav-dist, 40px) * 0.86)) scaleY(1.12);
+                animation-timing-function: ease-in;
             }
-            /* Second impact — smaller squash */
+            /* Second impact */
             90% {
-                transform: translateY(0) scaleY(0.93);
+                transform: translateY(var(--grav-dist, 40px)) scaleY(0.94);
                 animation-timing-function: ease-out;
             }
-            /* Tiny final bounce */
-            96% { transform: translateY(calc(-0.04 * var(--fall-dist, 60px))) scaleY(1.02); }
-            100% { transform: translateY(0) scaleY(1); opacity: 1; }
+            /* Settle */
+            96% { transform: translateY(calc(var(--grav-dist, 40px) * 0.98)) scaleY(1.02); }
+            100% { transform: translateY(var(--grav-dist, 40px)) scaleY(1); }
         }
 
         /* Flip announcement */
@@ -766,21 +763,26 @@ function updateFlipTimer() {
 
 // Rotate grid 180° then re-apply gravity so pieces settle at the bottom
 function flipGrid() {
-    // Flip vertically only — same column, row order reversed (no horizontal mirror)
+    // Vertical flip only — row order reversed, same columns, NO gravity yet.
+    // Gravity is applied separately by showGravityDrops so we can animate it.
     const flipped = Array.from({length: ROWS}, () => Array(COLS).fill(EMPTY));
     for (let r = 0; r < ROWS; r++)
         for (let c = 0; c < COLS; c++)
             flipped[ROWS-1-r][c] = grid[r][c];
+    grid = flipped;
+}
 
-    // Gravity: pack each column's pieces to the bottom
+// Returns a new grid with gravity applied (pieces packed to the bottom of each column)
+function applyGravity(src) {
+    const g = src.map(row => [...row]);
     for (let c = 0; c < COLS; c++) {
         const pieces = [];
         for (let r = 0; r < ROWS; r++)
-            if (flipped[r][c] !== EMPTY) pieces.push(flipped[r][c]);
+            if (g[r][c] !== EMPTY) pieces.push(g[r][c]);
         for (let r = 0; r < ROWS; r++)
-            flipped[r][c] = r < ROWS - pieces.length ? EMPTY : pieces[r - (ROWS - pieces.length)];
+            g[r][c] = r < ROWS - pieces.length ? EMPTY : pieces[r - (ROWS - pieces.length)];
     }
-    grid = flipped;
+    return g;
 }
 
 function triggerFlip(callback) {
@@ -811,38 +813,79 @@ function triggerFlip(callback) {
     }, 400);
 }
 
-// All pieces fall from the top of the board at the same moment — bottom rows land last
+// After the flip, animate each piece falling from its post-flip row to its gravity row.
+// Uses absolutely-positioned overlays (same technique as animateFall) so the
+// actual board cells stay clean and the re-render at the end is seamless.
 function showGravityDrops(callback) {
-    const { stride, pad } = boardGeom();
+    const { cell: cellSize, stride, pad, boardTop } = boardGeom();
+    const wrap      = document.getElementById('game-wrap');
+    const finalGrid = applyGravity(grid); // where pieces end up
+
     let maxEnd = 0;
 
-    for (let r = 0; r < ROWS; r++) {
-        for (let c = 0; c < COLS; c++) {
-            if (grid[r][c] === EMPTY) continue;
+    for (let c = 0; c < COLS; c++) {
+        // Pieces in this column after the flip (top → bottom order)
+        const pieces = [];
+        for (let r = 0; r < ROWS; r++)
+            if (grid[r][c] !== EMPTY) pieces.push({ r, color: grid[r][c] });
 
-            const el = document.getElementById(`c${r}_${c}`);
+        // Final rows after gravity (same relative order, packed to bottom)
+        const firstFinal = ROWS - pieces.length;
 
-            // Full distance from the top of the board content to this piece's row
-            const fallDist = pad + r * stride;
-            // Duration proportional to distance (same acceleration = sqrt scaling, but linear reads better)
-            const dur = 0.25 + r * 0.08; // row 0 = 0.25s, row 5 = 0.65s
+        for (let i = 0; i < pieces.length; i++) {
+            const fromRow  = pieces[i].r;
+            const toRow    = firstFinal + i;
+            const rowsDrop = toRow - fromRow;
+            if (rowsDrop <= 0) continue; // already at final spot, no fall needed
 
-            el.style.setProperty('--fall-dist', `${Math.max(fallDist, 24)}px`);
-            el.style.setProperty('--drop-dur',  `${dur}s`);
-            el.classList.add('flip-drop');
+            // Hide the actual board cell so it doesn't show through the overlay
+            document.getElementById(`c${fromRow}_${c}`).style.visibility = 'hidden';
+
+            // Build the falling overlay piece
+            const overlay = document.createElement('div');
+            const isRed   = pieces[i].color === RED;
+            overlay.style.cssText = `
+                position: absolute;
+                width: ${cellSize}px; height: ${cellSize}px;
+                border-radius: 50%; overflow: hidden;
+                left: ${pad + c * stride}px;
+                top:  ${boardTop + pad + fromRow * stride}px;
+                z-index: 8; pointer-events: none;
+                background: ${isRed
+                    ? 'radial-gradient(circle at 38% 35%, #ff8080, #dd1111 55%, #880000)'
+                    : 'radial-gradient(circle at 38% 35%, #80aaff, #1144dd 55%, #002299)'};
+                border: 2px solid ${isRed ? '#ff5555' : '#4477ff'};
+                box-shadow: 0 0 18px ${isRed ? 'rgba(255,68,68,0.6)' : 'rgba(68,136,255,0.6)'},
+                            inset 0 2px 8px rgba(0,0,0,0.35);
+            `;
+            // Gloss shine
+            const gloss = document.createElement('div');
+            gloss.style.cssText = 'position:absolute;top:13%;left:20%;width:30%;height:24%;background:rgba(255,255,255,0.11);border-radius:50%;transform:rotate(-25deg);';
+            overlay.appendChild(gloss);
+            wrap.appendChild(overlay);
+
+            // Fall distance in pixels = number of rows to fall × stride
+            const gravDist = rowsDrop * stride;
+            const dur      = 0.22 + rowsDrop * 0.1; // longer fall = more time
+
+            overlay.style.setProperty('--grav-dist', `${gravDist}px`);
+            overlay.style.setProperty('--grav-dur',  `${dur}s`);
+            overlay.getBoundingClientRect(); // force reflow before animation starts
+            overlay.classList.add('grav-drop');
 
             const endMs = dur * 1000 + 80;
             if (endMs > maxEnd) maxEnd = endMs;
-
-            setTimeout(() => {
-                el.classList.remove('flip-drop');
-                el.style.removeProperty('--fall-dist');
-                el.style.removeProperty('--drop-dur');
-            }, endMs);
+            setTimeout(() => overlay.remove(), endMs);
         }
     }
 
-    setTimeout(callback, maxEnd + 60);
+    // Once all overlays finish: commit final grid and re-render clean board
+    setTimeout(() => {
+        grid = finalGrid;
+        lastPlaced = null;
+        renderAll(); // clears visibility:hidden and shows pieces at final positions
+        callback();
+    }, maxEnd + 50);
 }
 
 // Called after every successful move to handle countdown and player switching
