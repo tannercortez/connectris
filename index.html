@@ -364,28 +364,50 @@
             display: flex;
             align-items: center;
             gap: 10px;
-            margin-bottom: 12px;
+            margin-bottom: 14px;
+            padding: 8px 20px;
+            background: rgba(119,102,255,0.1);
+            border: 2px solid rgba(119,102,255,0.3);
+            border-radius: 30px;
             font-size: 0.72rem;
-            color: #444;
+            color: #9988cc;
             letter-spacing: 1.5px;
             text-transform: uppercase;
+            box-shadow: 0 0 14px rgba(119,102,255,0.15);
+            transition: border-color 0.3s, box-shadow 0.3s;
+        }
+        #flip-timer.urgent-border {
+            border-color: rgba(255,68,68,0.5);
+            box-shadow: 0 0 18px rgba(255,68,68,0.25);
         }
         #flip-count {
-            font-size: 2rem;
+            font-size: 2.4rem;
             font-weight: 900;
-            color: #7766ff;
+            color: #bb99ff;
             line-height: 1;
-            min-width: 28px;
+            min-width: 32px;
             text-align: center;
-            transition: color 0.3s;
+            text-shadow: 0 0 14px rgba(119,102,255,0.8);
+            transition: color 0.3s, text-shadow 0.3s;
         }
         #flip-count.urgent {
-            color: #ff4444;
-            animation: flipUrgent 0.4s ease-in-out infinite alternate;
+            color: #ff5555;
+            text-shadow: 0 0 14px rgba(255,68,68,0.9);
+            animation: flipUrgent 0.38s ease-in-out infinite alternate;
         }
         @keyframes flipUrgent {
             from { transform: scale(1);    }
-            to   { transform: scale(1.3);  }
+            to   { transform: scale(1.35); }
+        }
+
+        /* Balls rolling/falling after the board flips */
+        .cell.flip-drop {
+            animation: flipDrop 0.48s cubic-bezier(0.34, 1.3, 0.64, 1) both;
+        }
+        @keyframes flipDrop {
+            0%   { transform: translateY(var(--fall-h, -50px)) scaleY(0.7); opacity: 0.3; }
+            65%  { transform: translateY(5px) scaleY(1.08); opacity: 1; }
+            100% { transform: translateY(0) scaleY(1); }
         }
 
         /* Flip announcement */
@@ -429,7 +451,8 @@
             .score-num.vs { font-size: 1.1rem; }
             #status { font-size: 0.85rem; padding: 5px 14px; margin-bottom: 5px; }
             #color-badge { font-size: 0.7rem; }
-            #flip-count  { font-size: 1.5rem; }
+            #flip-count  { font-size: 1.6rem; }
+            #flip-timer  { padding: 6px 14px; }
             #new-game-btn { margin-top: 12px; padding: 8px 18px; font-size: 0.8rem; }
             .rules { font-size: 0.65rem; }
             .overlay-card { padding: 32px 24px; }
@@ -579,6 +602,7 @@ const scores = { [RED]: 0, [BLUE]: 0 };
 // Flip mechanic state
 let flipsRemaining = 5;
 let moveCount      = 0;
+let gameSeed       = 0; // randomized each game; shared via server in online mode
 
 // Multiplayer state
 let socket      = null;
@@ -596,6 +620,7 @@ function initState() {
     lastPlaced    = null;
     hoveredCol    = -1;
     moveCount     = 0;
+    gameSeed      = Math.floor(Math.random() * 100000); // fresh seed for local play
 }
 
 function newGame() {
@@ -696,9 +721,9 @@ function clearColLit() {
    FLIP MECHANIC
    ═══════════════════════════════════════════════════ */
 
-// Deterministic 1-10 from seed so both players in online mode get the same value
+// Deterministic 1-10 using gameSeed + moveCount so both online players match
 function deterministicFlip(seed) {
-    let n = Math.sin(seed * 127.1 + 311.7) * 43758.5453;
+    let n = Math.sin((gameSeed + seed) * 127.1 + 311.7) * 43758.5453;
     n = n - Math.floor(n);
     return Math.floor(n * 10) + 1;
 }
@@ -709,9 +734,11 @@ function setNextFlip() {
 }
 
 function updateFlipTimer() {
-    const el = document.getElementById('flip-count');
+    const el      = document.getElementById('flip-count');
+    const timer   = document.getElementById('flip-timer');
     el.textContent = flipsRemaining;
     el.classList.toggle('urgent', flipsRemaining <= 2);
+    timer.classList.toggle('urgent-border', flipsRemaining <= 2);
 }
 
 // Rotate grid 180° then re-apply gravity so pieces settle at the bottom
@@ -733,30 +760,58 @@ function flipGrid() {
 }
 
 function triggerFlip(callback) {
-    // Flash the "FLIP!" announcement
     const ann = document.getElementById('flip-announcement');
     ann.style.display = 'block';
     setTimeout(() => { ann.style.display = 'none'; }, 750);
 
     const board = document.getElementById('board');
 
-    // Phase 1: fold the board away (0 → 90deg)
+    // Phase 1: board folds away (0 → 90deg, edge-on)
     board.classList.add('flip-out');
     setTimeout(() => {
         board.classList.remove('flip-out');
 
-        // Mid-flip: board is edge-on and invisible — update the grid now
+        // Midpoint — board invisible: rearrange pieces
         flipGrid();
         lastPlaced = null;
         renderAll();
 
-        // Phase 2: unfold back into view (-90 → 0deg) with new piece positions
+        // Phase 2: board unfolds back showing new positions
         board.classList.add('flip-in');
         setTimeout(() => {
             board.classList.remove('flip-in');
-            callback();
+            // After board is visible again, animate balls dropping into place
+            showGravityDrops(callback);
         }, 450);
     }, 450);
+}
+
+// After the flip, animate each column's balls rolling/bouncing down
+function showGravityDrops(callback) {
+    const colDelay = 65;  // ms stagger between columns
+    const dropDur  = 480; // ms per drop animation
+
+    for (let c = 0; c < COLS; c++) {
+        setTimeout(() => {
+            for (let r = 0; r < ROWS; r++) {
+                if (grid[r][c] === EMPTY) continue;
+                const el = document.getElementById(`c${r}_${c}`);
+                // Pieces higher up fell further, so give them a bigger start offset
+                const fallH = 30 + (ROWS - 1 - r) * 18;
+                el.style.setProperty('--fall-h', `-${fallH}px`);
+                el.style.animationDelay = '0ms';
+                el.classList.add('flip-drop');
+                setTimeout(() => {
+                    el.classList.remove('flip-drop');
+                    el.style.removeProperty('--fall-h');
+                    el.style.animationDelay = '';
+                }, dropDur + 50);
+            }
+        }, c * colDelay);
+    }
+
+    // Call callback after all columns have finished animating
+    setTimeout(callback, (COLS - 1) * colDelay + dropDur + 100);
 }
 
 // Called after every successful move to handle countdown and player switching
@@ -1035,8 +1090,9 @@ function connectSocket() {
         showWaiting();
     });
 
-    socket.on('game_start', color => {
+    socket.on('game_start', ({ color, seed }) => {
         myColor  = color;
+        gameSeed = seed;
         isOnline = true;
         hideWaiting();
         hideLobby();
@@ -1068,7 +1124,8 @@ function connectSocket() {
         document.getElementById('play-again').textContent = '⚔ Rematch!';
     });
 
-    socket.on('game_restart', () => {
+    socket.on('game_restart', ({ seed }) => {
+        gameSeed = seed;
         newGame();
     });
 

@@ -41,9 +41,10 @@ io.on('connection', socket => {
         room.players.push({ id: socket.id, color: 2 });
         socket.join(id);
 
-        // Tell each player their assigned color
+        // Tell each player their assigned color + a shared seed for the flip timer
+        const seed = Math.floor(Math.random() * 100000);
         for (const p of room.players) {
-            io.to(p.id).emit('game_start', p.color);
+            io.to(p.id).emit('game_start', { color: p.color, seed });
         }
     });
 
@@ -62,7 +63,8 @@ io.on('connection', socket => {
         if (room.votes.size >= 2) {
             room.votes.clear();
             room.turn = 1;                         // reset to Red's turn
-            io.to(myRoom).emit('game_restart');
+            const seed = Math.floor(Math.random() * 100000);
+            io.to(myRoom).emit('game_restart', { seed });
         } else {
             socket.to(myRoom).emit('opponent_wants_restart');
         }
