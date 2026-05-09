@@ -125,11 +125,14 @@
             grid-template-columns: repeat(7, var(--cell));
             grid-template-rows: repeat(6, var(--cell));
             gap: var(--gap);
-            background: #0b0b26;
+            background: #1a1200;
             border-radius: 16px;
             padding: var(--pad);
-            border: 2px solid #14144a;
-            box-shadow: 0 0 50px rgba(80,80,255,0.13), inset 0 2px 20px rgba(0,0,30,0.6);
+            border: 3px solid #a07618;
+            box-shadow:
+                0 0 60px rgba(210,155,10,0.45),
+                0 0 120px rgba(180,120,0,0.2),
+                inset 0 2px 24px rgba(12,8,0,0.7);
             cursor: pointer;
             transition: opacity 0.2s;
         }
@@ -139,8 +142,8 @@
         .cell {
             width: var(--cell); height: var(--cell);
             border-radius: 50%;
-            background: #050510;
-            border: 2px solid #0e0e2e;
+            background: #0d0900;
+            border: 2px solid #2e2100;
             position: relative;
             overflow: hidden;
         }
@@ -164,7 +167,7 @@
             border-color: #4477ff;
             box-shadow: 0 0 18px rgba(68,136,255,0.6), inset 0 2px 8px rgba(0,0,0,0.35);
         }
-        .cell.col-lit   { background: #0e0e28; border-color: #1c1c50; }
+        .cell.col-lit   { background: #1f1600; border-color: #5c4400; }
         .cell.landing   { animation: land 0.38s ease-out; }
         .cell.clearing  { animation: flashOut 0.45s ease-out forwards; }
         .cell.winning   { animation: winPulse 0.55s ease-in-out infinite alternate; }
