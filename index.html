@@ -656,14 +656,24 @@ function drop(col) {
             return;
         }
 
-        // Find full rows
+        // Find full rows and full columns
         const fullRows = [];
         for (let r = 0; r < ROWS; r++)
             if (grid[r].every(v => v !== EMPTY)) fullRows.push(r);
 
-        if (fullRows.length > 0) {
-            renderAll([], fullRows);
+        const fullCols = [];
+        for (let c = 0; c < COLS; c++)
+            if (Array.from({length: ROWS}, (_, r) => grid[r][c]).every(v => v !== EMPTY))
+                fullCols.push(c);
+
+        if (fullRows.length > 0 || fullCols.length > 0) {
+            renderAll([], fullRows, fullCols);
             setTimeout(() => {
+                // Empty full columns in place (whole column clears, no gravity needed)
+                for (const c of fullCols)
+                    for (let r = 0; r < ROWS; r++) grid[r][c] = EMPTY;
+
+                // Remove full rows and apply gravity (pieces above fall down)
                 for (const r of [...fullRows].sort((a,b) => b-a)) {
                     grid.splice(r, 1);
                     grid.unshift(Array(COLS).fill(EMPTY));
@@ -786,9 +796,10 @@ function isDraw() {
 /* ═══════════════════════════════════════════════════
    RENDER
    ═══════════════════════════════════════════════════ */
-function renderAll(winCells = [], clearRows = []) {
-    const winSet   = new Set(winCells.map(([r,c]) => `${r},${c}`));
-    const clearSet = new Set(clearRows);
+function renderAll(winCells = [], clearRows = [], clearCols = []) {
+    const winSet      = new Set(winCells.map(([r,c]) => `${r},${c}`));
+    const clearRowSet = new Set(clearRows);
+    const clearColSet = new Set(clearCols);
 
     for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
@@ -797,10 +808,10 @@ function renderAll(winCells = [], clearRows = []) {
             el.className = 'cell';
             if (v === RED)  el.classList.add('red');
             if (v === BLUE) el.classList.add('blue');
-            if (clearSet.has(r) && v !== EMPTY) el.classList.add('clearing');
+            if ((clearRowSet.has(r) || clearColSet.has(c)) && v !== EMPTY) el.classList.add('clearing');
             if (winSet.has(`${r},${c}`))         el.classList.add('winning');
             if (lastPlaced && r===lastPlaced.row && c===lastPlaced.col
-                && !winCells.length && !clearRows.length)
+                && !winCells.length && !clearRows.length && !clearCols.length)
                 el.classList.add('landing');
         }
     }
