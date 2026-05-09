@@ -450,7 +450,7 @@
         }
 
         /* Single continuous 180° flip — no class-swap gap, board stays visible on both halves */
-        #board.flipping { animation: boardFlip 0.72s forwards; }
+        #board.flipping { animation: boardFlip 0.5s forwards; }
         @keyframes boardFlip {
             /* First half: fold away (ease-in = accelerates like falling) */
             0%  { transform: rotateX(0deg);   animation-timing-function: ease-in;  }
@@ -790,7 +790,7 @@ function triggerFlip(callback) {
     setTimeout(() => { ann.style.display = 'none'; }, 700);
 
     const board = document.getElementById('board');
-    const FLIP_TOTAL = 720; // ms — must match boardFlip animation duration
+    const FLIP_TOTAL = 500; // ms — must match boardFlip animation duration
 
     // Start the single continuous flip animation
     board.classList.add('flipping');
@@ -834,8 +834,8 @@ function showGravityDrops(callback) {
             const rowsDrop = toRow - fromRow;
             if (rowsDrop <= 0) continue; // already at final spot, no fall needed
 
-            // Make the original cell invisible while the overlay animates over it
-            document.getElementById(`c${fromRow}_${c}`).style.opacity = '0';
+            // Do NOT hide the original cell — its dark circle background must stay visible.
+            // The overlay sits on top and covers the colored piece portion cleanly.
 
             // Build the falling overlay piece
             const overlay = document.createElement('div');
@@ -846,7 +846,7 @@ function showGravityDrops(callback) {
                 border-radius: 50%; overflow: hidden;
                 left: ${pad + c * stride}px;
                 top:  ${boardTop + pad + fromRow * stride}px;
-                z-index: 8; pointer-events: none;
+                z-index: 25; pointer-events: none;
                 background: ${isRed
                     ? 'radial-gradient(circle at 38% 35%, #ff8080, #dd1111 55%, #880000)'
                     : 'radial-gradient(circle at 38% 35%, #80aaff, #1144dd 55%, #002299)'};
@@ -1084,7 +1084,6 @@ function renderAll(winCells = [], clearRows = [], clearCols = []) {
             const el = document.getElementById(`c${r}_${c}`);
             const v  = grid[r][c];
             el.className = 'cell';
-            el.style.opacity = ''; // clear any opacity:0 set during flip gravity animation
             if (v === RED)  el.classList.add('red');
             if (v === BLUE) el.classList.add('blue');
             if ((clearRowSet.has(r) || clearColSet.has(c)) && v !== EMPTY) el.classList.add('clearing');
