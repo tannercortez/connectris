@@ -13,15 +13,20 @@
             --pad:  12px;
         }
 
+        /* html provides the fallback dark bg so the canvas is never "behind" nothing */
+        html { background: #02020c; }
+
         #starfield {
             position: fixed;
             inset: 0;
             width: 100%; height: 100%;
             pointer-events: none;
+            z-index: -1; /* behind all body content */
         }
 
         body {
-            background: #02020c;
+            background: transparent; /* canvas handles the background */
+            isolation: isolate;       /* creates stacking context so z-index:-1 works */
             display: flex;
             flex-direction: column;
             align-items: center;
