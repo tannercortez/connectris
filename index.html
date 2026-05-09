@@ -666,10 +666,11 @@ function initState() {
     lastPlaced    = null;
     hoveredCol    = -1;
     moveCount     = 0;
-    gameSeed      = Math.floor(Math.random() * 100000); // fresh seed for local play
+    // gameSeed is NOT reset here — set by newGame() for local play, or by server for online
 }
 
 function newGame() {
+    if (!isOnline) gameSeed = Math.floor(Math.random() * 100000); // local play: fresh random seed
     initState();
     document.getElementById('win-overlay').classList.remove('show');
     document.getElementById('rematch-status').style.display = 'none';
