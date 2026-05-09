@@ -834,8 +834,10 @@ function showGravityDrops(callback) {
             const rowsDrop = toRow - fromRow;
             if (rowsDrop <= 0) continue; // already at final spot, no fall needed
 
-            // Do NOT hide the original cell — its dark circle background must stay visible.
-            // The overlay sits on top and covers the colored piece portion cleanly.
+            // Strip the color from the original cell so it shows as a dark circle.
+            // The overlay handles the visual of the piece while it falls.
+            const actualCell = document.getElementById(`c${fromRow}_${c}`);
+            actualCell.classList.remove('red', 'blue');
 
             // Build the falling overlay piece
             const overlay = document.createElement('div');
