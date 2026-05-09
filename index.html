@@ -214,16 +214,16 @@
             font-size: 0.88rem;
             font-weight: 700;
             letter-spacing: 0.5px;
-            background: rgba(255,255,255,0.06);
-            border: 2px solid rgba(255,255,255,0.11);
+            background: rgba(255,255,255,0.14);
+            border: 2px solid rgba(255,255,255,0.3);
             border-radius: 12px;
-            color: #777;
+            color: #ddd;
             cursor: pointer;
             transition: all 0.2s;
         }
-        #new-game-btn:hover { background: rgba(255,255,255,0.11); border-color: rgba(255,255,255,0.22); color: #ccc; }
+        #new-game-btn:hover { background: rgba(255,255,255,0.22); border-color: rgba(255,255,255,0.5); color: #fff; }
 
-        .rules { margin-top: 13px; font-size: 0.72rem; color: #2a2a4a; letter-spacing: 0.3px; text-align: center; }
+        .rules { margin-top: 13px; font-size: 0.72rem; color: #ffffff; letter-spacing: 0.3px; text-align: center; }
 
         /* ── Win overlay ── */
         #win-overlay {
@@ -599,7 +599,7 @@
 
 <button id="new-game-btn" onclick="handleNewGame()">↺ New Game</button>
 
-<p class="rules">Click a column to drop &nbsp;·&nbsp; Full rows vanish like Tetris &nbsp;·&nbsp; Get 4 in a row to win</p>
+<p class="rules">Click a column to drop &nbsp;·&nbsp; Full Rows and Columns vanish like Tetris &nbsp;·&nbsp; Get 4 in a row to win</p>
 
 <!-- ═══════════ WIN OVERLAY ═══════════ -->
 <div id="win-overlay">
