@@ -449,16 +449,15 @@
             to   { transform: translate(-50%,-50%) scale(1);   opacity: 1; }
         }
 
-        /* Board flip — two-phase 180° (fold away, update grid, fold back) */
-        #board.flip-out { animation: boardFlipOut 0.4s ease-in  forwards; }
-        #board.flip-in  { animation: boardFlipIn  0.4s ease-out forwards; }
-        @keyframes boardFlipOut {
-            from { transform: rotateX(0deg);  }
-            to   { transform: rotateX(90deg); }
-        }
-        @keyframes boardFlipIn {
-            from { transform: rotateX(-90deg); }
-            to   { transform: rotateX(0deg);   }
+        /* Single continuous 180° flip — no class-swap gap, board stays visible on both halves */
+        #board.flipping { animation: boardFlip 0.72s forwards; }
+        @keyframes boardFlip {
+            /* First half: fold away (ease-in = accelerates like falling) */
+            0%  { transform: rotateX(0deg);   animation-timing-function: ease-in;  }
+            49% { transform: rotateX(90deg);  }   /* edge-on, nearly invisible — grid updates here */
+            /* Instant jump to back-side start, then unfold (ease-out = decelerates smoothly) */
+            50% { transform: rotateX(-90deg); animation-timing-function: ease-out; }
+            100%{ transform: rotateX(0deg);   }
         }
 
         /* ── Mobile responsive ── */
@@ -791,26 +790,23 @@ function triggerFlip(callback) {
     setTimeout(() => { ann.style.display = 'none'; }, 700);
 
     const board = document.getElementById('board');
+    const FLIP_TOTAL = 720; // ms — must match boardFlip animation duration
 
-    // Phase 1: fold away (0 → 90°, edge-on and invisible)
-    board.classList.add('flip-out');
+    // Start the single continuous flip animation
+    board.classList.add('flipping');
+
+    // At exactly 49% (edge-on, board invisible) — update grid content
     setTimeout(() => {
-        board.classList.remove('flip-out');
-
-        // Board is edge-on — update grid now, invisible to player
         flipGrid();
         lastPlaced = null;
         renderAll();
+    }, FLIP_TOTAL * 0.49);
 
-        // Phase 2: fold back (−90° → 0°, board comes back with new layout)
-        board.classList.add('flip-in');
-        setTimeout(() => {
-            board.classList.remove('flip-in');
-
-            // Brief pause so the eye settles, then all balls drop from the top together
-            setTimeout(() => showGravityDrops(callback), 220);
-        }, 400);
-    }, 400);
+    // Animation ends → remove class, then let pieces drop
+    setTimeout(() => {
+        board.classList.remove('flipping');
+        setTimeout(() => showGravityDrops(callback), 180);
+    }, FLIP_TOTAL);
 }
 
 // After the flip, animate each piece falling from its post-flip row to its gravity row.
@@ -838,8 +834,8 @@ function showGravityDrops(callback) {
             const rowsDrop = toRow - fromRow;
             if (rowsDrop <= 0) continue; // already at final spot, no fall needed
 
-            // Hide the actual board cell so it doesn't show through the overlay
-            document.getElementById(`c${fromRow}_${c}`).style.visibility = 'hidden';
+            // Make the original cell invisible while the overlay animates over it
+            document.getElementById(`c${fromRow}_${c}`).style.opacity = '0';
 
             // Build the falling overlay piece
             const overlay = document.createElement('div');
@@ -879,13 +875,14 @@ function showGravityDrops(callback) {
         }
     }
 
-    // Once all overlays finish: commit final grid and re-render clean board
+    // Immediately after the last overlay finishes, commit final grid and re-render.
+    // renderAll() clears opacity:0 on all cells so everything is visible again.
     setTimeout(() => {
         grid = finalGrid;
         lastPlaced = null;
-        renderAll(); // clears visibility:hidden and shows pieces at final positions
+        renderAll();
         callback();
-    }, maxEnd + 50);
+    }, maxEnd + 16); // one frame buffer — tight so there's no gap between overlay end and re-render
 }
 
 // Called after every successful move to handle countdown and player switching
@@ -1087,7 +1084,7 @@ function renderAll(winCells = [], clearRows = [], clearCols = []) {
             const el = document.getElementById(`c${r}_${c}`);
             const v  = grid[r][c];
             el.className = 'cell';
-            el.style.visibility = ''; // clear any hidden state left by flip animation
+            el.style.opacity = ''; // clear any opacity:0 set during flip gravity animation
             if (v === RED)  el.classList.add('red');
             if (v === BLUE) el.classList.add('blue');
             if ((clearRowSet.has(r) || clearColSet.has(c)) && v !== EMPTY) el.classList.add('clearing');
