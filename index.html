@@ -814,8 +814,9 @@ function triggerFlip(callback) {
 // actual board cells stay clean and the re-render at the end is seamless.
 function showGravityDrops(callback) {
     const { cell: cellSize, stride, pad, boardTop } = boardGeom();
-    const wrap      = document.getElementById('game-wrap');
-    const finalGrid = applyGravity(grid); // where pieces end up
+    const wrap       = document.getElementById('game-wrap');
+    const finalGrid  = applyGravity(grid); // where pieces end up
+    const allOverlays = [];
 
     let maxEnd = 0;
 
@@ -873,16 +874,17 @@ function showGravityDrops(callback) {
 
             const endMs = dur * 1000 + 80;
             if (endMs > maxEnd) maxEnd = endMs;
-            setTimeout(() => overlay.remove(), endMs);
+            allOverlays.push(overlay); // collect — removed after renderAll, not before
         }
     }
 
-    // Immediately after the last overlay finishes, commit final grid and re-render.
-    // renderAll() clears opacity:0 on all cells so everything is visible again.
+    // renderAll() first (cells show final pieces), then remove overlays.
+    // This order eliminates the flash: pieces are never missing between overlay-gone and cell-updated.
     setTimeout(() => {
         grid = finalGrid;
         lastPlaced = null;
         renderAll();
+        allOverlays.forEach(o => o.remove()); // overlays gone now that cells are correct
         callback();
     }, maxEnd + 16); // one frame buffer — tight so there's no gap between overlay end and re-render
 }
