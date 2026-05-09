@@ -35,13 +35,13 @@
             font-family: 'Segoe UI', system-ui, sans-serif;
             color: #fff;
             user-select: none;
-            padding: 20px;
+            padding: 10px;
         }
 
         h1 {
             font-size: clamp(1.6rem, 5vw, 2.6rem);
             font-weight: 900;
-            margin-bottom: 20px;
+            margin-bottom: 8px;
             letter-spacing: -1px;
         }
 
@@ -52,7 +52,7 @@
         .scoreboard {
             display: flex;
             gap: 50px;
-            margin-bottom: 14px;
+            margin-bottom: 6px;
             align-items: center;
         }
         .score-item { display: flex; flex-direction: column; align-items: center; gap: 3px; }
@@ -66,8 +66,8 @@
         #status {
             font-size: 1.05rem;
             font-weight: 700;
-            margin-bottom: 6px;
-            padding: 7px 22px;
+            margin-bottom: 3px;
+            padding: 5px 18px;
             border-radius: 30px;
             letter-spacing: 0.3px;
             transition: all 0.3s;
@@ -79,15 +79,15 @@
         #color-badge {
             font-size: 0.75rem;
             color: #444;
-            margin-bottom: 10px;
-            min-height: 18px;
+            margin-bottom: 4px;
+            min-height: 14px;
             letter-spacing: 0.3px;
         }
 
         /* ── Game wrapper: padding-top reserves space for preview piece ── */
         #game-wrap {
             position: relative;
-            padding-top: calc(var(--cell) + 20px);
+            padding-top: calc(var(--cell) + 8px);
             perspective: 1000px;
         }
 
@@ -209,8 +209,8 @@
 
         /* ── Buttons / footer ── */
         #new-game-btn {
-            margin-top: 18px;
-            padding: 10px 26px;
+            margin-top: 8px;
+            padding: 8px 22px;
             font-size: 0.88rem;
             font-weight: 700;
             letter-spacing: 0.5px;
@@ -223,7 +223,7 @@
         }
         #new-game-btn:hover { background: rgba(255,255,255,0.22); border-color: rgba(255,255,255,0.5); color: #fff; }
 
-        .rules { margin-top: 13px; font-size: 0.72rem; color: #ffffff; letter-spacing: 0.3px; text-align: center; }
+        .rules { margin-top: 6px; font-size: 0.72rem; color: #ffffff; letter-spacing: 0.3px; text-align: center; }
 
         /* ── Win overlay ── */
         #win-overlay {
@@ -386,8 +386,8 @@
             display: flex;
             align-items: center;
             gap: 10px;
-            margin-bottom: 14px;
-            padding: 8px 20px;
+            margin-bottom: 6px;
+            padding: 5px 16px;
             background: rgba(119,102,255,0.1);
             border: 2px solid rgba(119,102,255,0.3);
             border-radius: 30px;
