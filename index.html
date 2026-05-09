@@ -1087,6 +1087,7 @@ function renderAll(winCells = [], clearRows = [], clearCols = []) {
             const el = document.getElementById(`c${r}_${c}`);
             const v  = grid[r][c];
             el.className = 'cell';
+            el.style.visibility = ''; // clear any hidden state left by flip animation
             if (v === RED)  el.classList.add('red');
             if (v === BLUE) el.classList.add('blue');
             if ((clearRowSet.has(r) || clearColSet.has(c)) && v !== EMPTY) el.classList.add('clearing');
