@@ -76,6 +76,7 @@
         #game-wrap {
             position: relative;
             padding-top: calc(var(--cell) + 20px);
+            perspective: 1000px;
         }
 
         /* ── Preview piece (floats above board in the padding area) ── */
@@ -451,16 +452,14 @@
             to   { transform: translate(-50%,-50%) scale(1);   opacity: 1; }
         }
 
-        /* Board flip animation (two-phase: fold away → update → unfold back) */
-        #board.flip-out { animation: boardFlipOut 0.45s ease-in  forwards; }
-        #board.flip-in  { animation: boardFlipIn  0.45s ease-out forwards; }
-        @keyframes boardFlipOut {
-            from { transform: perspective(900px) rotateX(0deg);  }
-            to   { transform: perspective(900px) rotateX(90deg); }
+        /* Board flip animation — full 360° spin so pieces stay visible the whole time */
+        #board.spinning {
+            animation: boardSpin 1.1s ease-in-out forwards;
+            backface-visibility: visible;
         }
-        @keyframes boardFlipIn {
-            from { transform: perspective(900px) rotateX(-90deg); }
-            to   { transform: perspective(900px) rotateX(0deg);   }
+        @keyframes boardSpin {
+            0%   { transform: rotateX(0deg);   }
+            100% { transform: rotateX(360deg); }
         }
 
         /* ── Mobile responsive ── */
@@ -785,51 +784,46 @@ function flipGrid() {
 function triggerFlip(callback) {
     const ann = document.getElementById('flip-announcement');
     ann.style.display = 'block';
-    setTimeout(() => { ann.style.display = 'none'; }, 750);
+    setTimeout(() => { ann.style.display = 'none'; }, 700);
 
     const board = document.getElementById('board');
 
-    // Phase 1: board folds away (0 → 90deg, edge-on)
-    board.classList.add('flip-out');
-    setTimeout(() => {
-        board.classList.remove('flip-out');
+    // Full 360° spin — pieces stay visible the whole way through
+    board.classList.add('spinning');
 
-        // Midpoint — board invisible: rearrange pieces
+    setTimeout(() => {
+        board.classList.remove('spinning');
+
+        // Grid switches the instant the spin ends (same render frame — no visible pop)
         flipGrid();
         lastPlaced = null;
         renderAll();
 
-        // Phase 2: board unfolds back showing new positions
-        board.classList.add('flip-in');
-        setTimeout(() => {
-            board.classList.remove('flip-in');
-            // After board is visible again, animate balls dropping into place
-            showGravityDrops(callback);
-        }, 450);
-    }, 450);
+        // Brief pause so the eye can register the new layout, then all pieces drop together
+        setTimeout(() => showGravityDrops(callback), 220);
+    }, 1100); // matches boardSpin duration
 }
 
-// After the flip, animate each ball falling from the top of the board to its position
+// All pieces fall from the top simultaneously — bottom rows fall furthest and land last
 function showGravityDrops(callback) {
     const { stride } = boardGeom();
-    const colDelay = 70;   // ms stagger between columns (left → right wave)
-    let   maxEnd   = 0;
+    let maxEnd = 0;
 
-    for (let c = 0; c < COLS; c++) {
-        const colStart = c * colDelay;
-
-        for (let r = 0; r < ROWS; r++) {
+    for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
             if (grid[r][c] === EMPTY) continue;
 
             const el       = document.getElementById(`c${r}_${c}`);
-            const fallDist = r * stride;           // px this piece must fall
-            const dur      = 0.3 + r * 0.07;      // longer fall = longer animation (0.3–0.72s)
+            // Distance from the top of the board to this piece's row
+            const fallDist = Math.max((r + 1) * stride, 30);
+            // Duration scales with distance so all pieces accelerate at the same rate
+            const dur      = 0.28 + r * 0.07; // 0.28s (row 0) → 0.63s (row 5)
 
-            el.style.setProperty('--fall-dist', `${Math.max(fallDist, 20)}px`);
+            el.style.setProperty('--fall-dist', `${fallDist}px`);
             el.style.setProperty('--drop-dur',  `${dur}s`);
             el.classList.add('flip-drop');
 
-            const endMs = colStart + dur * 1000 + 100;
+            const endMs = dur * 1000 + 80;
             if (endMs > maxEnd) maxEnd = endMs;
 
             setTimeout(() => {
@@ -840,7 +834,7 @@ function showGravityDrops(callback) {
         }
     }
 
-    setTimeout(callback, maxEnd + 80);
+    setTimeout(callback, maxEnd + 60);
 }
 
 // Called after every successful move to handle countdown and player switching
