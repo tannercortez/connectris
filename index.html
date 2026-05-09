@@ -170,7 +170,7 @@
         .cell.col-lit   { background: #1f1600; border-color: #5c4400; }
         .cell.landing   { animation: land 0.38s ease-out; }
         .cell.clearing  { animation: flashOut 0.45s ease-out forwards; }
-        .cell.winning   { animation: winPulse 0.55s ease-in-out infinite alternate; }
+        .cell.winning   { animation: winPulse 1.6s ease-in-out infinite alternate; }
 
         @keyframes land {
             0%   { transform: scale(1,1);     }
@@ -185,8 +185,14 @@
             100% { transform: scale(0);    opacity: 0; }
         }
         @keyframes winPulse {
-            from { transform: scale(1);    filter: brightness(1);   }
-            to   { transform: scale(1.12); filter: brightness(1.5); }
+            from {
+                transform: scale(1);
+                filter: brightness(1) drop-shadow(0 0 4px rgba(255,255,255,0.3));
+            }
+            to {
+                transform: scale(1.08);
+                filter: brightness(1.25) drop-shadow(0 0 18px rgba(255,255,255,1)) drop-shadow(0 0 36px rgba(255,255,255,0.5));
+            }
         }
 
         /* ── Buttons / footer ── */
@@ -901,8 +907,32 @@ function advanceTurn() {
     if (flipsRemaining <= 0) {
         triggerFlip(() => {
             setNextFlip();
-            currentPlayer = currentPlayer === RED ? BLUE : RED;
             animating = false;
+
+            // Check if the flip created wins for either or both players
+            const redWin  = findWinForPlayer(RED);
+            const blueWin = findWinForPlayer(BLUE);
+
+            if (redWin || blueWin) {
+                gameOver = true;
+                if (redWin && blueWin) {
+                    // Both got 4 in a row — tie
+                    const allCells = [...redWin.cells, ...blueWin.cells];
+                    renderAll(allCells);
+                    setTimeout(() => showModal('draw', "It's a Tie!", 'Both got 4 in a row after the flip!'), 600);
+                } else {
+                    const winner = redWin ? RED : BLUE;
+                    const win    = redWin || blueWin;
+                    scores[winner]++;
+                    updateScores();
+                    renderAll(win.cells);
+                    const [type, msg, sub] = winMessage(winner, winner === RED ? BLUE : RED);
+                    setTimeout(() => showModal(type, msg, sub), 600);
+                }
+                return;
+            }
+
+            currentPlayer = currentPlayer === RED ? BLUE : RED;
             renderAll();
             updateStatus();
             if (isDraw()) { endDraw(); return; }
@@ -1053,25 +1083,28 @@ function animateFall(col, targetRow, player, callback) {
 /* ═══════════════════════════════════════════════════
    WIN / DRAW DETECTION
    ═══════════════════════════════════════════════════ */
-function findWin() {
+function findWinForPlayer(player) {
     const dirs = [[0,1],[1,0],[1,1],[1,-1]];
     for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
-            const p = grid[r][c];
-            if (!p) continue;
+            if (grid[r][c] !== player) continue;
             for (const [dr,dc] of dirs) {
                 const cells = [[r,c]];
                 for (let i = 1; i < 4; i++) {
                     const nr = r+dr*i, nc = c+dc*i;
-                    if (nr>=0 && nr<ROWS && nc>=0 && nc<COLS && grid[nr][nc]===p)
+                    if (nr>=0 && nr<ROWS && nc>=0 && nc<COLS && grid[nr][nc]===player)
                         cells.push([nr,nc]);
                     else break;
                 }
-                if (cells.length >= 4) return { player: p, cells };
+                if (cells.length >= 4) return { player, cells };
             }
         }
     }
     return null;
+}
+
+function findWin() {
+    return findWinForPlayer(RED) || findWinForPlayer(BLUE);
 }
 
 function isDraw() {
