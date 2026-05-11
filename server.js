@@ -21,9 +21,9 @@ io.on('connection', socket => {
     let myRoom  = null;
     let myColor = null; // 1 = Red, 2 = Blue
 
-    socket.on('create_room', () => {
+    socket.on('create_room', (mode) => {
         const id = makeId();
-        rooms.set(id, { players: [{ id: socket.id, color: 1 }], turn: 1, votes: new Set() });
+        rooms.set(id, { players: [{ id: socket.id, color: 1 }], turn: 1, votes: new Set(), mode: mode || 'normal' });
         myRoom  = id;
         myColor = 1;
         socket.join(id);
@@ -44,14 +44,14 @@ io.on('connection', socket => {
         // Tell each player their assigned color + a shared seed for the flip timer
         const seed = Math.floor(Math.random() * 100000);
         for (const p of room.players) {
-            io.to(p.id).emit('game_start', { color: p.color, seed });
+            io.to(p.id).emit('game_start', { color: p.color, seed, mode: room.mode });
         }
     });
 
-    socket.on('drop', col => {
+    socket.on('drop', data => {
         const room = rooms.get(myRoom);
         if (!room || room.turn !== myColor) return;
-        io.to(myRoom).emit('move', col);          // relay to both players
+        io.to(myRoom).emit('move', data);          // relay to both players
         room.turn = room.turn === 1 ? 2 : 1;      // advance turn
     });
 
@@ -64,7 +64,7 @@ io.on('connection', socket => {
             room.votes.clear();
             room.turn = 1;                         // reset to Red's turn
             const seed = Math.floor(Math.random() * 100000);
-            io.to(myRoom).emit('game_restart', { seed });
+            io.to(myRoom).emit('game_restart', { seed, mode: room.mode });
         } else {
             socket.to(myRoom).emit('opponent_wants_restart');
         }

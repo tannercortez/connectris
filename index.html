@@ -91,19 +91,18 @@
             perspective: 1000px;
         }
 
-        /* ── Preview piece (floats above board in the padding area) ── */
+        /* ── Preview piece (lives inside #board so it rotates with it) ── */
         #preview-piece {
             position: absolute;
             width: var(--cell);
             height: var(--cell);
             border-radius: 50%;
-            top: 10px;
-            left: var(--pad);
+            /* top/left set dynamically by JS based on boardAngle */
             display: none;
             pointer-events: none;
             z-index: 15;
             overflow: hidden;
-            transition: left 0.07s ease;
+            transition: left 0.07s ease, top 0.07s ease;
         }
         #preview-piece::after {
             content: '';
@@ -147,6 +146,7 @@
                 0 0 90px rgba(180,120,0,0.25);
             cursor: pointer;
             transition: opacity 0.2s;
+            position: relative; /* containing block for overlay pieces */
         }
         #board.locked { cursor: not-allowed; opacity: 0.72; }
 
@@ -481,6 +481,36 @@
             100%{ transform: rotateX(0deg);   }
         }
 
+        /* ── Mode selector buttons (in lobby) ── */
+        .mode-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 18px;
+        }
+        .mode-btn {
+            flex: 1;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 2px solid rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.04);
+            color: #555;
+            font-size: 0.85rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.18s;
+            letter-spacing: 0.3px;
+        }
+        .mode-btn:hover {
+            background: rgba(255,255,255,0.09);
+            color: #999;
+            border-color: rgba(255,255,255,0.22);
+        }
+        .mode-btn.active {
+            background: rgba(119,102,255,0.16);
+            border-color: rgba(119,102,255,0.48);
+            color: #bb99ff;
+        }
+
         /* ── Mobile responsive ── */
         @media (max-width: 560px) {
             :root { --cell: 42px; --gap: 4px; --pad: 8px; }
@@ -522,6 +552,12 @@
 <div id="lobby-overlay" class="screen-overlay">
     <div class="overlay-card">
         <h2><span class="t">CONNEC</span><span class="c">TRIS</span></h2>
+
+        <p style="font-size:0.68rem;color:#444;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;">Game Mode</p>
+        <div class="mode-row">
+            <button class="mode-btn active" id="mode-normal" onclick="selectMode('normal')">⚡ Normal</button>
+            <button class="mode-btn" id="mode-chaos" onclick="selectMode('chaos')">🌀 Chaos</button>
+        </div>
 
         <button class="mp-btn online" onclick="onCreateRoom()">
             <span class="b-icon">🌐</span>
@@ -590,13 +626,14 @@
 <div id="status" class="red">🔴 Red's Turn</div>
 <div id="color-badge"></div>
 
-<div id="flip-timer">↻ flip in <span id="flip-count">—</span> turns</div>
+<div id="flip-timer"><span id="flip-timer-label">↻ flip</span> in <span id="flip-count">—</span> turns</div>
 
 <div id="flip-announcement">FLIP!</div>
 
 <div id="game-wrap">
-    <div id="preview-piece"></div>
-    <div id="board"></div>
+    <div id="board">
+        <div id="preview-piece"></div>
+    </div>
 </div>
 
 <button id="new-game-btn" onclick="handleNewGame()">↺ New Game</button>
@@ -643,12 +680,24 @@ function boardGeom() {
    ═══════════════════════════════════════════════════ */
 let grid, currentPlayer, gameOver, animating, lastPlaced;
 let hoveredCol = -1;
+let hoveredRow = -1;
 const scores = { [RED]: 0, [BLUE]: 0 };
 
 // Flip mechanic state
 let flipsRemaining = 5;
 let moveCount      = 0;
 let gameSeed       = 0; // randomized each game; shared via server in online mode
+
+// Game mode
+let gameMode        = 'normal'; // 'normal' | 'chaos'
+let nextChaosAction = 'flip';   // pre-computed so the timer label shows the upcoming action
+let boardAngle      = 0;        // persistent Z-rotation of the board in degrees
+
+function selectMode(mode) {
+    gameMode = mode;
+    document.getElementById('mode-normal').classList.toggle('active', mode === 'normal');
+    document.getElementById('mode-chaos').classList.toggle('active', mode === 'chaos');
+}
 
 // Multiplayer state
 let socket      = null;
@@ -665,7 +714,12 @@ function initState() {
     animating     = false;
     lastPlaced    = null;
     hoveredCol    = -1;
+    hoveredRow    = -1;
     moveCount     = 0;
+    boardAngle    = 0;
+    const boardEl = document.getElementById('board');
+    if (boardEl) { boardEl.style.transition = ''; boardEl.style.transform = ''; }
+    document.getElementById('game-wrap').style.marginBottom = '';
     // gameSeed is NOT reset here — set by newGame() for local play, or by server for online
 }
 
@@ -686,32 +740,32 @@ function newGame() {
    BUILD BOARD (once on page load)
    ═══════════════════════════════════════════════════ */
 function buildBoard() {
-    const board = document.getElementById('board');
+    const board   = document.getElementById('board');
+    const preview = document.getElementById('preview-piece'); // save before innerHTML wipes it
     board.innerHTML = '';
+    if (preview) board.appendChild(preview); // restore it
     for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
             const el = document.createElement('div');
             el.className    = 'cell';
             el.id           = `c${r}_${c}`;
-            el.onclick      = () => handleClick(c);
-            el.onmouseenter = () => { hoveredCol = c; showPreview(c); };
+            el.onclick      = () => handleClick(r, c);
+            el.onmouseenter = () => { hoveredRow = r; hoveredCol = c; showPreview(r, c); };
             board.appendChild(el);
         }
     }
-    board.onmouseleave = () => { hoveredCol = -1; clearColLit(); hidePreview(); };
+    board.onmouseleave = () => { hoveredRow = -1; hoveredCol = -1; clearColLit(); hidePreview(); };
 }
 
 /* ═══════════════════════════════════════════════════
    CLICK ROUTING  (local vs online)
    ═══════════════════════════════════════════════════ */
-function handleClick(col) {
+function handleClick(r, c) {
     if (isOnline) {
-        // Only send if it's genuinely our turn and the board is unlocked
         if (currentPlayer !== myColor || gameOver || animating) return;
-        socket.emit('drop', col);
-        // Don't process locally — wait for server echo via 'move' event
+        socket.emit('drop', {r, c});
     } else {
-        drop(col);
+        drop(r, c);
     }
 }
 
@@ -737,27 +791,44 @@ function handlePlayAgain() {
 /* ═══════════════════════════════════════════════════
    PREVIEW PIECE
    ═══════════════════════════════════════════════════ */
-function showPreview(col) {
+function showPreview(r, c) {
     clearColLit();
-    // Don't show preview when locked
     if (gameOver || animating) return;
     if (isOnline && currentPlayer !== myColor) return;
 
-    for (let r = 0; r < ROWS; r++)
-        if (grid[r][col] === EMPTY)
-            document.getElementById(`c${r}_${col}`).classList.add('col-lit');
-
-    if (grid[0][col] !== EMPTY) { hidePreview(); return; }
-
+    const a = ((boardAngle % 360) + 360) % 360;
+    const { cell, pad, stride } = boardGeom();
+    const boardEl = document.getElementById('board');
     const p = document.getElementById('preview-piece');
-    const { pad, stride } = boardGeom();
-    p.className    = currentPlayer === RED ? 'red' : 'blue';
-    p.style.left   = (pad + col * stride) + 'px';
+    if (!p) return;
+
+    if (a === 0 || a === 180) {
+        // Column-based drop — highlight column c
+        for (let row = 0; row < ROWS; row++)
+            if (grid[row][c] === EMPTY)
+                document.getElementById(`c${row}_${c}`).classList.add('col-lit');
+        const entryFull = a === 0 ? grid[0][c] !== EMPTY : grid[ROWS-1][c] !== EMPTY;
+        if (entryFull) { hidePreview(); return; }
+        p.className = currentPlayer === RED ? 'red' : 'blue';
+        p.style.left = `${pad + c * stride}px`;
+        p.style.top  = a === 0 ? `${-(cell + 6)}px` : `${boardEl.offsetHeight + 6}px`;
+    } else {
+        // Row-based drop — highlight row r
+        for (let col = 0; col < COLS; col++)
+            if (grid[r][col] === EMPTY)
+                document.getElementById(`c${r}_${col}`).classList.add('col-lit');
+        const rowFull = !grid[r].some(v => v === EMPTY);
+        if (rowFull) { hidePreview(); return; }
+        p.className = currentPlayer === RED ? 'red' : 'blue';
+        p.style.top  = `${pad + r * stride}px`;
+        p.style.left = a === 90 ? `${-(cell + 6)}px` : `${boardEl.offsetWidth + 6}px`;
+    }
     p.style.display = 'block';
 }
 
 function hidePreview() {
-    document.getElementById('preview-piece').style.display = 'none';
+    const p = document.getElementById('preview-piece');
+    if (p) p.style.display = 'none';
 }
 
 function clearColLit() {
@@ -775,15 +846,123 @@ function deterministicFlip(seed) {
     return Math.floor(n * 10) + 1;
 }
 
+// Deterministic chaos action: 'flip' | 'tilt-right' | 'tilt-left'
+function deterministicChaosAction(seed) {
+    let n = Math.sin((gameSeed + seed) * 91.3 + 283.1) * 43758.5453;
+    n = n - Math.floor(n);
+    return ['flip', 'tilt-right', 'tilt-left'][Math.floor(n * 3)];
+}
+
+// Tilt-right (rotateZ 90° CW): col-6 is at screen bottom, pieces settle toward col COLS-1
+function applyColumnGravityRight(src) {
+    const g = Array.from({length: ROWS}, () => Array(COLS).fill(EMPTY));
+    for (let r = 0; r < ROWS; r++) {
+        const pieces = [];
+        for (let c = 0; c < COLS; c++)
+            if (src[r][c] !== EMPTY) pieces.push(src[r][c]);
+        const empty = COLS - pieces.length;
+        for (let c = 0; c < COLS; c++)
+            g[r][c] = c < empty ? EMPTY : pieces[c - empty];
+    }
+    return g;
+}
+
+// Tilt-left (rotateZ -90° CCW): col-0 is at screen bottom, pieces settle toward col 0
+function applyColumnGravityLeft(src) {
+    const g = Array.from({length: ROWS}, () => Array(COLS).fill(EMPTY));
+    for (let r = 0; r < ROWS; r++) {
+        const pieces = [];
+        for (let c = 0; c < COLS; c++)
+            if (src[r][c] !== EMPTY) pieces.push(src[r][c]);
+        for (let c = 0; c < COLS; c++)
+            g[r][c] = c < pieces.length ? pieces[c] : EMPTY;
+    }
+    return g;
+}
+
+// 180° flip: pieces settle toward row 0 (gravity reversed)
+function applyReverseGravity(src) {
+    const g = Array.from({length: ROWS}, () => Array(COLS).fill(EMPTY));
+    for (let c = 0; c < COLS; c++) {
+        const pieces = [];
+        for (let r = 0; r < ROWS; r++)
+            if (src[r][c] !== EMPTY) pieces.push(src[r][c]);
+        for (let r = 0; r < ROWS; r++)
+            g[r][c] = r < pieces.length ? pieces[r] : EMPTY;
+    }
+    return g;
+}
+
+// Pick the gravity function appropriate for the current boardAngle
+function applyGravityForAngle(angle, src) {
+    const a = ((angle % 360) + 360) % 360;
+    if (a === 90)  return applyColumnGravityRight(src);
+    if (a === 180) return applyReverseGravity(src);
+    if (a === 270) return applyColumnGravityLeft(src);
+    return applyGravity(src); // 0° — normal
+}
+
+// Adjust game-wrap margin so the tilted board doesn't overlap the New Game button
+function updateBoardSpacing() {
+    const boardEl  = document.getElementById('board');
+    const gameWrap = document.getElementById('game-wrap');
+    const a = ((boardAngle % 360) + 360) % 360;
+    if (a === 90 || a === 270) {
+        const extra = Math.max(0, Math.round((boardEl.offsetWidth - boardEl.offsetHeight) / 2));
+        gameWrap.style.marginBottom = `${extra}px`;
+    } else {
+        gameWrap.style.marginBottom = '';
+    }
+}
+
+// Flip the grid in the axis that makes sense for the current boardAngle
+function flipGridForAngle() {
+    const a = ((boardAngle % 360) + 360) % 360;
+    if (a === 0 || a === 180) {
+        flipGrid(); // reverse rows (standard flip)
+    } else {
+        // At 90° or 270°: board's "vertical" axis is now horizontal, so reverse columns
+        grid = grid.map(row => [...row].reverse());
+    }
+}
+
+// Compute (fromR,fromC)→(toR,toC) for each piece that moved, for downward gravity
+function computeDownMoves(src, dst) {
+    const moves = [];
+    for (let c = 0; c < COLS; c++) {
+        const srcPos = [], dstPos = [];
+        for (let r = 0; r < ROWS; r++) {
+            if (src[r][c] !== EMPTY) srcPos.push({ r, c, color: src[r][c] });
+            if (dst[r][c] !== EMPTY) dstPos.push({ r, c, color: dst[r][c] });
+        }
+        for (let i = 0; i < srcPos.length; i++) {
+            if (srcPos[i].r !== dstPos[i].r)
+                moves.push({ fromR: srcPos[i].r, fromC: c, toR: dstPos[i].r, toC: c, color: srcPos[i].color });
+        }
+    }
+    return moves;
+}
+
 function setNextFlip() {
     flipsRemaining = deterministicFlip(moveCount);
+    if (gameMode === 'chaos') {
+        // Use a separate offset so chaos action seed never collides with flip-timing seed
+        nextChaosAction = deterministicChaosAction(moveCount + 50000);
+    }
     updateFlipTimer();
 }
 
 function updateFlipTimer() {
     const el      = document.getElementById('flip-count');
     const timer   = document.getElementById('flip-timer');
+    const label   = document.getElementById('flip-timer-label');
     el.textContent = flipsRemaining;
+    if (gameMode === 'chaos') {
+        const name = nextChaosAction === 'flip' ? 'Flip' : nextChaosAction === 'tilt-right' ? 'Right' : 'Left';
+        label.textContent = `↻ ${name}`;
+    } else {
+        label.textContent = '↻ flip';
+    }
     el.classList.toggle('urgent', flipsRemaining <= 2);
     timer.classList.toggle('urgent-border', flipsRemaining <= 2);
 }
@@ -812,71 +991,220 @@ function applyGravity(src) {
     return g;
 }
 
-function triggerFlip(callback) {
+function triggerEvent(action, callback) {
     const ann = document.getElementById('flip-announcement');
+    if (action === 'flip') {
+        ann.textContent      = 'FLIP!';
+        ann.style.color      = '#fff';
+        ann.style.textShadow = '0 0 40px #7766ff, 0 0 80px #7766ff';
+    } else if (action === 'tilt-right') {
+        ann.textContent      = 'TILT →';
+        ann.style.color      = '#ffcc55';
+        ann.style.textShadow = '0 0 40px #ff8800, 0 0 80px #ff8800';
+    } else {
+        ann.textContent      = '← TILT';
+        ann.style.color      = '#55ddff';
+        ann.style.textShadow = '0 0 40px #00aaff, 0 0 80px #00aaff';
+    }
     ann.style.display = 'block';
-    setTimeout(() => { ann.style.display = 'none'; }, 700);
+    setTimeout(() => { ann.style.display = 'none'; }, 750);
 
     const board = document.getElementById('board');
-    const FLIP_TOTAL = 500; // ms — must match boardFlip animation duration
 
-    // Start the single continuous flip animation
-    board.classList.add('flipping');
+    if (action === 'flip') {
+        const PHASE = 245;
+        const a = ((boardAngle % 360) + 360) % 360;
 
-    // At exactly 49% (edge-on, board invisible) — update grid content
-    setTimeout(() => {
-        flipGrid();
-        lastPlaced = null;
-        renderAll();
-    }, FLIP_TOTAL * 0.49);
+        // At 90°/270° the board is on its side: local rotateX spins it horizontally (twist).
+        // Use local rotateY instead — equivalent to rotating around the screen's horizontal axis,
+        // so the flip always looks like a top-to-bottom fold regardless of board angle.
+        let flipIn, flipOut;
+        if (a === 90) {
+            flipIn  = `rotateZ(${boardAngle}deg) rotateY(-90deg)`;
+            flipOut = `rotateZ(${boardAngle}deg) rotateY(90deg)`;
+        } else if (a === 270) {
+            flipIn  = `rotateZ(${boardAngle}deg) rotateY(90deg)`;
+            flipOut = `rotateZ(${boardAngle}deg) rotateY(-90deg)`;
+        } else {
+            flipIn  = `rotateZ(${boardAngle}deg) rotateX(90deg)`;
+            flipOut = `rotateZ(${boardAngle}deg) rotateX(-90deg)`;
+        }
 
-    // Animation ends → remove class, then let pieces drop
-    setTimeout(() => {
-        board.classList.remove('flipping');
-        setTimeout(() => showGravityDrops(callback), 180);
-    }, FLIP_TOTAL);
+        board.style.transition = `transform ${PHASE}ms ease-in`;
+        board.style.transform  = flipIn;
+
+        setTimeout(() => {
+            flipGridForAngle();
+            lastPlaced = null;
+            renderAll();
+            board.style.transition = 'none';
+            board.style.transform  = flipOut;
+            board.getBoundingClientRect();
+
+            board.style.transition = `transform ${PHASE}ms ease-out`;
+            board.style.transform  = boardAngle ? `rotateZ(${boardAngle}deg)` : '';
+
+            setTimeout(() => {
+                board.style.transition = '';
+                board.style.transform  = boardAngle ? `rotateZ(${boardAngle}deg)` : '';
+                setTimeout(() => showGravityDrops(callback), 80);
+            }, PHASE);
+        }, PHASE);
+
+    } else {
+        // Tilt: board rotates to new angle and STAYS there — no return to 0°
+        const TILT_IN_MS  = 370;
+        const targetAngle = boardAngle + (action === 'tilt-right' ? 90 : -90);
+
+        board.style.transition = `transform ${TILT_IN_MS}ms ease-in`;
+        board.style.transform  = `rotateZ(${targetAngle}deg)`;
+
+        setTimeout(() => {
+            const ta = ((targetAngle % 360) + 360) % 360;
+            const doneCallback = () => {
+                boardAngle = targetAngle;
+                board.style.transition = '';
+                updateBoardSpacing();
+                callback();
+            };
+            if (ta === 0 || ta === 180) {
+                // Gravity is column-based at 0°/180° — showColumnGravityDrops assumes row-based, so use showGravityDrops
+                showGravityDrops(doneCallback, targetAngle);
+            } else {
+                const finalGrid = applyGravityForAngle(targetAngle, grid);
+                showColumnGravityDrops(targetAngle, finalGrid, doneCallback);
+            }
+        }, TILT_IN_MS);
+    }
 }
 
-// After the flip, animate each piece falling from its post-flip row to its gravity row.
-// Uses absolutely-positioned overlays (same technique as animateFall) so the
-// actual board cells stay clean and the re-render at the end is seamless.
-function showGravityDrops(callback) {
-    const { cell: cellSize, stride, pad, boardTop } = boardGeom();
-    const wrap       = document.getElementById('game-wrap');
-    const finalGrid  = applyGravity(grid); // where pieces end up
+// After a flip, animate each piece settling due to gravity.
+// Overlays are children of #board so they rotate with it at any boardAngle.
+function showGravityDrops(callback, angleOverride) {
+    const angle = angleOverride !== undefined ? angleOverride : boardAngle;
+    const { cell: cellSize, stride, pad } = boardGeom();
+    const board     = document.getElementById('board');
+    const finalGrid = applyGravityForAngle(angle, grid);
+    const a         = ((angle % 360) + 360) % 360;
+    const vertical  = (a === 0 || a === 180);
+
+    const moves = [];
+    if (vertical) {
+        for (let c = 0; c < COLS; c++) {
+            const sp = [], dp = [];
+            for (let r = 0; r < ROWS; r++) {
+                if (grid[r][c]      !== EMPTY) sp.push({ r, c, color: grid[r][c] });
+                if (finalGrid[r][c] !== EMPTY) dp.push({ r, c, color: finalGrid[r][c] });
+            }
+            for (let i = 0; i < sp.length; i++)
+                if (sp[i].r !== dp[i].r)
+                    moves.push({ fromR: sp[i].r, fromC: c, toR: dp[i].r, toC: c, color: sp[i].color });
+        }
+    } else {
+        for (let r = 0; r < ROWS; r++) {
+            const sp = [], dp = [];
+            for (let c = 0; c < COLS; c++) {
+                if (grid[r][c]      !== EMPTY) sp.push({ r, c, color: grid[r][c] });
+                if (finalGrid[r][c] !== EMPTY) dp.push({ r, c, color: finalGrid[r][c] });
+            }
+            for (let i = 0; i < sp.length; i++)
+                if (sp[i].c !== dp[i].c)
+                    moves.push({ fromR: r, fromC: sp[i].c, toR: r, toC: dp[i].c, color: sp[i].color });
+        }
+    }
+
     const allOverlays = [];
+    let   maxEnd      = 0;
 
-    let maxEnd = 0;
+    for (const { fromR, fromC, toR, toC, color } of moves) {
+        document.getElementById(`c${fromR}_${fromC}`).classList.remove('red', 'blue');
 
-    for (let c = 0; c < COLS; c++) {
-        // Pieces in this column after the flip (top → bottom order)
-        const pieces = [];
-        for (let r = 0; r < ROWS; r++)
-            if (grid[r][c] !== EMPTY) pieces.push({ r, color: grid[r][c] });
+        const isRed  = color === RED;
+        const overlay = document.createElement('div');
+        overlay.style.cssText = `
+            position: absolute;
+            width: ${cellSize}px; height: ${cellSize}px;
+            border-radius: 50%; overflow: hidden;
+            left: ${pad + fromC * stride}px;
+            top:  ${pad + fromR * stride}px;
+            z-index: 25; pointer-events: none;
+            background: ${isRed
+                ? 'radial-gradient(circle at 38% 35%, #ff8080, #dd1111 55%, #880000)'
+                : 'radial-gradient(circle at 38% 35%, #80aaff, #1144dd 55%, #002299)'};
+            border: 2px solid ${isRed ? '#ff5555' : '#4477ff'};
+            box-shadow: 0 0 18px ${isRed ? 'rgba(255,68,68,0.6)' : 'rgba(68,136,255,0.6)'},
+                        inset 0 2px 8px rgba(0,0,0,0.35);
+        `;
+        const gloss = document.createElement('div');
+        gloss.style.cssText = 'position:absolute;top:13%;left:20%;width:30%;height:24%;background:rgba(255,255,255,0.11);border-radius:50%;transform:rotate(-25deg);';
+        overlay.appendChild(gloss);
+        board.appendChild(overlay); // rotates with board at any angle
 
-        // Final rows after gravity (same relative order, packed to bottom)
-        const firstFinal = ROWS - pieces.length;
+        const dx    = (toC - fromC) * stride;
+        const dy    = (toR - fromR) * stride;
+        const steps = Math.abs(dx || dy) / stride;
+        const dur   = 0.22 + steps * 0.1;
 
-        for (let i = 0; i < pieces.length; i++) {
-            const fromRow  = pieces[i].r;
-            const toRow    = firstFinal + i;
-            const rowsDrop = toRow - fromRow;
-            if (rowsDrop <= 0) continue; // already at final spot, no fall needed
+        if (a === 0) {
+            overlay.style.setProperty('--grav-dist', `${dy}px`);
+            overlay.style.setProperty('--grav-dur',  `${dur}s`);
+            overlay.getBoundingClientRect();
+            overlay.classList.add('grav-drop');
+        } else {
+            overlay.getBoundingClientRect();
+            overlay.style.transition = `transform ${dur}s cubic-bezier(0.55, 0, 0.85, 0.35)`;
+            overlay.style.transform  = `translate(${dx}px, ${dy}px)`;
+        }
 
-            // Strip the color from the original cell so it shows as a dark circle.
-            // The overlay handles the visual of the piece while it falls.
-            const actualCell = document.getElementById(`c${fromRow}_${c}`);
-            actualCell.classList.remove('red', 'blue');
+        const endMs = dur * 1000 + 80;
+        if (endMs > maxEnd) maxEnd = endMs;
+        allOverlays.push(overlay);
+    }
 
-            // Build the falling overlay piece
+    setTimeout(() => {
+        grid = finalGrid;
+        lastPlaced = null;
+        renderAll();
+        allOverlays.forEach(o => o.remove());
+        callback();
+    }, maxEnd + 16);
+}
+
+// During a tilt: pieces settle while the board is held at targetAngle.
+// Overlays are board-children so they rotate with it.
+// "Down on screen" at angle θ = direction (sinθ, cosθ) in board space.
+function showColumnGravityDrops(targetAngle, finalGrid, callback) {
+    const { cell: cellSize, stride, pad } = boardGeom();
+    const board = document.getElementById('board');
+
+    const rad  = targetAngle * Math.PI / 180;
+    const sinA = Math.sin(rad); // ≈ ±1 for 90°/270°
+    const cosA = Math.cos(rad); // ≈  0 for 90°/270°
+
+    const allOverlays = [];
+    let   maxEnd      = 0;
+
+    for (let r = 0; r < ROWS; r++) {
+        const srcPieces = [], dstPieces = [];
+        for (let c = 0; c < COLS; c++) {
+            if (grid[r][c]      !== EMPTY) srcPieces.push({ c, color: grid[r][c] });
+            if (finalGrid[r][c] !== EMPTY) dstPieces.push({ c, color: finalGrid[r][c] });
+        }
+        for (let i = 0; i < srcPieces.length; i++) {
+            const fromC = srcPieces[i].c;
+            const toC   = dstPieces[i].c;
+            if (fromC === toC) continue;
+
+            const isRed = srcPieces[i].color === RED;
+            document.getElementById(`c${r}_${fromC}`).classList.remove('red', 'blue');
+
             const overlay = document.createElement('div');
-            const isRed   = pieces[i].color === RED;
             overlay.style.cssText = `
                 position: absolute;
                 width: ${cellSize}px; height: ${cellSize}px;
                 border-radius: 50%; overflow: hidden;
-                left: ${pad + c * stride}px;
-                top:  ${boardTop + pad + fromRow * stride}px;
+                left: ${pad + fromC * stride}px;
+                top:  ${pad + r * stride}px;
                 z-index: 25; pointer-events: none;
                 background: ${isRed
                     ? 'radial-gradient(circle at 38% 35%, #ff8080, #dd1111 55%, #880000)'
@@ -885,36 +1213,33 @@ function showGravityDrops(callback) {
                 box-shadow: 0 0 18px ${isRed ? 'rgba(255,68,68,0.6)' : 'rgba(68,136,255,0.6)'},
                             inset 0 2px 8px rgba(0,0,0,0.35);
             `;
-            // Gloss shine
             const gloss = document.createElement('div');
             gloss.style.cssText = 'position:absolute;top:13%;left:20%;width:30%;height:24%;background:rgba(255,255,255,0.11);border-radius:50%;transform:rotate(-25deg);';
             overlay.appendChild(gloss);
-            wrap.appendChild(overlay);
+            board.appendChild(overlay); // rotates with the board
 
-            // Fall distance in pixels = number of rows to fall × stride
-            const gravDist = rowsDrop * stride;
-            const dur      = 0.22 + rowsDrop * 0.1; // longer fall = more time
+            const colDiff = Math.abs(toC - fromC);
+            const dist    = colDiff * stride;
+            const dur     = 0.22 + colDiff * 0.1;
 
-            overlay.style.setProperty('--grav-dist', `${gravDist}px`);
-            overlay.style.setProperty('--grav-dur',  `${dur}s`);
-            overlay.getBoundingClientRect(); // force reflow before animation starts
-            overlay.classList.add('grav-drop');
+            // translate(sinA*dist, cosA*dist) in board space = downward on screen at targetAngle
+            overlay.getBoundingClientRect();
+            overlay.style.transition = `transform ${dur}s cubic-bezier(0.55, 0, 0.85, 0.35)`;
+            overlay.style.transform  = `translate(${sinA * dist}px, ${cosA * dist}px)`;
 
             const endMs = dur * 1000 + 80;
             if (endMs > maxEnd) maxEnd = endMs;
-            allOverlays.push(overlay); // collect — removed after renderAll, not before
+            allOverlays.push(overlay);
         }
     }
 
-    // renderAll() first (cells show final pieces), then remove overlays.
-    // This order eliminates the flash: pieces are never missing between overlay-gone and cell-updated.
     setTimeout(() => {
         grid = finalGrid;
         lastPlaced = null;
         renderAll();
-        allOverlays.forEach(o => o.remove()); // overlays gone now that cells are correct
+        allOverlays.forEach(o => o.remove());
         callback();
-    }, maxEnd + 16); // one frame buffer — tight so there's no gap between overlay end and re-render
+    }, maxEnd + 16);
 }
 
 // Called after every successful move to handle countdown and player switching
@@ -924,7 +1249,8 @@ function advanceTurn() {
     updateFlipTimer();
 
     if (flipsRemaining <= 0) {
-        triggerFlip(() => {
+        const action = gameMode === 'chaos' ? nextChaosAction : 'flip';
+        triggerEvent(action, () => {
             setNextFlip();
             animating = false;
 
@@ -955,7 +1281,7 @@ function advanceTurn() {
             renderAll();
             updateStatus();
             if (isDraw()) { endDraw(); return; }
-            if (hoveredCol >= 0) showPreview(hoveredCol);
+            if (hoveredCol >= 0) showPreview(hoveredRow, hoveredCol);
         });
     } else {
         currentPlayer = currentPlayer === RED ? BLUE : RED;
@@ -963,7 +1289,7 @@ function advanceTurn() {
         renderAll();
         updateStatus();
         if (isDraw()) { endDraw(); return; }
-        if (hoveredCol >= 0) showPreview(hoveredCol);
+        if (hoveredCol >= 0) showPreview(hoveredRow, hoveredCol);
     }
 }
 
@@ -972,21 +1298,45 @@ function advanceTurn() {
    (called directly for local play; called on 'move'
     event echo from server for online play)
    ═══════════════════════════════════════════════════ */
-function drop(col) {
+function drop(clickedR, clickedC) {
     if (gameOver || animating) return;
 
-    let targetRow = -1;
-    for (let r = ROWS - 1; r >= 0; r--)
-        if (grid[r][col] === EMPTY) { targetRow = r; break; }
-    if (targetRow === -1) return;
+    const a = ((boardAngle % 360) + 360) % 360;
+    let targetRow = -1, targetCol = -1;
+
+    if (a === 0) {
+        // Normal: column clickedC, lowest empty row
+        for (let r = ROWS - 1; r >= 0; r--)
+            if (grid[r][clickedC] === EMPTY) { targetRow = r; break; }
+        if (targetRow === -1) return;
+        targetCol = clickedC;
+    } else if (a === 90) {
+        // Tilted right: row clickedR, rightmost empty col
+        for (let c = COLS - 1; c >= 0; c--)
+            if (grid[clickedR][c] === EMPTY) { targetCol = c; break; }
+        if (targetCol === -1) return;
+        targetRow = clickedR;
+    } else if (a === 180) {
+        // Upside down: column clickedC, topmost empty row
+        for (let r = 0; r < ROWS; r++)
+            if (grid[r][clickedC] === EMPTY) { targetRow = r; break; }
+        if (targetRow === -1) return;
+        targetCol = clickedC;
+    } else {
+        // Tilted left (270°): row clickedR, leftmost empty col
+        for (let c = 0; c < COLS; c++)
+            if (grid[clickedR][c] === EMPTY) { targetCol = c; break; }
+        if (targetCol === -1) return;
+        targetRow = clickedR;
+    }
 
     animating = true;
     clearColLit();
     hidePreview();
 
-    animateFall(col, targetRow, currentPlayer, () => {
-        grid[targetRow][col] = currentPlayer;
-        lastPlaced = { row: targetRow, col };
+    animateFall(targetRow, targetCol, currentPlayer, () => {
+        grid[targetRow][targetCol] = currentPlayer;
+        lastPlaced = { row: targetRow, col: targetCol };
 
         // Check win
         const win = findWin();
@@ -1015,16 +1365,15 @@ function drop(col) {
         if (fullRows.length > 0 || fullCols.length > 0) {
             renderAll([], fullRows, fullCols);
             setTimeout(() => {
-                // Empty full columns in place (whole column clears, no gravity needed)
+                // Clear full rows and columns in place, then re-settle via current gravity.
+                // Angle-aware: applyGravityForAngle handles all orientations correctly.
+                for (const r of fullRows)
+                    for (let c = 0; c < COLS; c++) grid[r][c] = EMPTY;
                 for (const c of fullCols)
                     for (let r = 0; r < ROWS; r++) grid[r][c] = EMPTY;
-
-                // Remove full rows and apply gravity (pieces above fall down)
-                for (const r of [...fullRows].sort((a,b) => b-a)) {
-                    grid.splice(r, 1);
-                    grid.unshift(Array(COLS).fill(EMPTY));
-                }
+                grid = applyGravityForAngle(boardAngle, grid);
                 lastPlaced = null;
+                renderAll();
 
                 const winAfter = findWin();
                 if (winAfter) {
@@ -1054,49 +1403,63 @@ function endDraw() {
 }
 
 /* ═══════════════════════════════════════════════════
-   FALL ANIMATION
+   FALL ANIMATION  (piece is a child of #board so it
+   rotates with the board at any boardAngle)
    ═══════════════════════════════════════════════════ */
-function animateFall(col, targetRow, player, callback) {
-    const wrap = document.getElementById('game-wrap');
+function animateFall(targetRow, targetCol, player, callback) {
+    const boardEl = document.getElementById('board');
     const { cell, pad, stride, boardTop } = boardGeom();
+    const a = ((boardAngle % 360) + 360) % 360;
 
     const piece = document.createElement('div');
-    piece.style.cssText = `
-        position:absolute; width:${cell}px; height:${cell}px;
-        border-radius:50%; left:${pad + col*stride}px; top:10px;
-        z-index:10; pointer-events:none; overflow:hidden;
-    `;
-    if (player === RED) {
-        piece.style.background = 'radial-gradient(circle at 38% 35%, #ff8080, #dd1111 55%, #880000)';
-        piece.style.border     = '2px solid #ff5555';
-        piece.style.boxShadow  = '0 0 18px rgba(255,68,68,0.6), inset 0 2px 8px rgba(0,0,0,0.35)';
-    } else {
-        piece.style.background = 'radial-gradient(circle at 38% 35%, #80aaff, #1144dd 55%, #002299)';
-        piece.style.border     = '2px solid #4477ff';
-        piece.style.boxShadow  = '0 0 18px rgba(68,136,255,0.6), inset 0 2px 8px rgba(0,0,0,0.35)';
-    }
-    // Gloss
+    piece.style.cssText = `position:absolute; width:${cell}px; height:${cell}px;
+        border-radius:50%; z-index:10; pointer-events:none; overflow:hidden;`;
+    piece.style.background = player === RED
+        ? 'radial-gradient(circle at 38% 35%, #ff8080, #dd1111 55%, #880000)'
+        : 'radial-gradient(circle at 38% 35%, #80aaff, #1144dd 55%, #002299)';
+    piece.style.border    = `2px solid ${player === RED ? '#ff5555' : '#4477ff'}`;
+    piece.style.boxShadow = `0 0 18px ${player === RED ? 'rgba(255,68,68,0.6)' : 'rgba(68,136,255,0.6)'}, inset 0 2px 8px rgba(0,0,0,0.35)`;
     const gloss = document.createElement('div');
     gloss.style.cssText = 'position:absolute;top:13%;left:20%;width:30%;height:24%;background:rgba(255,255,255,0.11);border-radius:50%;transform:rotate(-25deg);';
     piece.appendChild(gloss);
-    wrap.appendChild(piece);
+    boardEl.appendChild(piece); // child of board — rotates with it
 
-    const endTop  = boardTop + pad + targetRow * stride;
-    const dur     = (0.08 + (targetRow + 1) * 0.068).toFixed(3);
-    let   done    = false;
+    const endLeft = pad + targetCol * stride;
+    const endTop  = pad + targetRow * stride;
+    let prop, startVal, endVal, dur, done = false;
 
-    piece.getBoundingClientRect(); // force reflow
-    piece.style.transition = `top ${dur}s ease-in`;
-    piece.style.top        = endTop + 'px';
+    if (a === 0) {
+        // Falls downward in board space
+        prop = 'top'; startVal = 10 - boardTop; endVal = endTop;
+        piece.style.left = `${endLeft}px`;
+        dur = (0.08 + (targetRow + 1) * 0.068).toFixed(3);
+    } else if (a === 90) {
+        // At 90° CW: piece enters from visual top = board's left edge
+        prop = 'left'; startVal = -(cell + 10); endVal = endLeft;
+        piece.style.top = `${endTop}px`;
+        dur = (0.08 + (targetCol + 1) * 0.068).toFixed(3);
+    } else if (a === 180) {
+        // Upside down: piece enters from visual top = board's bottom edge
+        prop = 'top'; startVal = boardEl.offsetHeight + 10; endVal = endTop;
+        piece.style.left = `${endLeft}px`;
+        dur = (0.08 + (ROWS - targetRow) * 0.068).toFixed(3);
+    } else {
+        // At 270° CCW: piece enters from visual top = board's right edge
+        prop = 'left'; startVal = boardEl.offsetWidth + 10; endVal = endLeft;
+        piece.style.top = `${endTop}px`;
+        dur = (0.08 + (COLS - targetCol) * 0.068).toFixed(3);
+    }
+
+    piece.style[prop] = `${startVal}px`;
+    piece.getBoundingClientRect();
+    piece.style.transition = `${prop} ${dur}s ease-in`;
+    piece.style[prop] = `${endVal}px`;
 
     const finish = () => {
-        if (done) return;
-        done = true;
-        piece.remove();
-        callback();
+        if (done) return; done = true; piece.remove(); callback();
     };
     piece.addEventListener('transitionend', finish, { once: true });
-    setTimeout(finish, (parseFloat(dur) + 0.15) * 1000); // safety
+    setTimeout(finish, (parseFloat(dur) + 0.15) * 1000);
 }
 
 /* ═══════════════════════════════════════════════════
@@ -1127,7 +1490,12 @@ function findWin() {
 }
 
 function isDraw() {
-    return grid[0].every(v => v !== EMPTY);
+    // Board is a draw when no move can be made (entry slot for every lane is full)
+    const a = ((boardAngle % 360) + 360) % 360;
+    if (a === 0)   return grid[0].every(v => v !== EMPTY);
+    if (a === 90)  return Array.from({length: ROWS}, (_, r) => grid[r][COLS-1]).every(v => v !== EMPTY);
+    if (a === 180) return grid[ROWS-1].every(v => v !== EMPTY);
+    return Array.from({length: ROWS}, (_, r) => grid[r][0]).every(v => v !== EMPTY); // 270°
 }
 
 /* ═══════════════════════════════════════════════════
@@ -1220,9 +1588,10 @@ function connectSocket() {
         showWaiting();
     });
 
-    socket.on('game_start', ({ color, seed }) => {
+    socket.on('game_start', ({ color, seed, mode }) => {
         myColor  = color;
         gameSeed = seed;
+        gameMode = mode || 'normal';
         isOnline = true;
         hideWaiting();
         hideLobby();
@@ -1239,7 +1608,7 @@ function connectSocket() {
         document.getElementById('new-game-btn').textContent = '← Leave Room';
     });
 
-    socket.on('move', col => drop(col));       // server echoes moves to both players
+    socket.on('move', data => drop(data.r, data.c)); // server echoes moves to both players
 
     socket.on('join_error', msg => {
         document.getElementById('lobby-error').textContent = msg;
@@ -1254,8 +1623,9 @@ function connectSocket() {
         document.getElementById('play-again').textContent = '⚔ Rematch!';
     });
 
-    socket.on('game_restart', ({ seed }) => {
+    socket.on('game_restart', ({ seed, mode }) => {
         gameSeed = seed;
+        if (mode) gameMode = mode;
         newGame();
     });
 
@@ -1277,7 +1647,7 @@ function connectSocket() {
 function onCreateRoom() {
     document.getElementById('lobby-error').textContent = '';
     connectSocket();
-    socket.on('connect', () => socket.emit('create_room'));
+    socket.on('connect', () => socket.emit('create_room', gameMode));
 }
 
 function onJoinRoom() {
