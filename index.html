@@ -207,6 +207,40 @@
             }
         }
 
+        /* ── Main-menu confirm overlay ── */
+        #menu-confirm-overlay {
+            display: none;
+            position: fixed; inset: 0;
+            background: rgba(0,0,5,0.78);
+            z-index: 300;
+            align-items: center; justify-content: center;
+        }
+        #menu-confirm-overlay.show { display: flex; }
+        #menu-confirm-box {
+            background: rgba(8,8,30,0.96);
+            border: 2px solid rgba(255,255,255,0.12);
+            border-radius: 20px;
+            padding: 36px 40px;
+            text-align: center;
+            max-width: 320px; width: 88%;
+            box-shadow: 0 8px 48px rgba(0,0,0,0.6);
+        }
+        #menu-confirm-msg { font-size: 1.3rem; font-weight: 800; margin-bottom: 8px; }
+        #menu-confirm-sub { font-size: 0.82rem; color: #666; margin-bottom: 26px; }
+        .menu-confirm-btns { display: flex; gap: 12px; justify-content: center; }
+        .menu-confirm-btns button {
+            padding: 9px 22px; border-radius: 10px; font-size: 0.88rem; font-weight: 700;
+            cursor: pointer; transition: all 0.18s; border: 2px solid;
+        }
+        #menu-confirm-yes {
+            background: rgba(255,68,68,0.12); border-color: rgba(255,68,68,0.35); color: #ff8888;
+        }
+        #menu-confirm-yes:hover { background: rgba(255,68,68,0.24); border-color: rgba(255,68,68,0.6); }
+        #menu-confirm-no {
+            background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.18); color: #aaa;
+        }
+        #menu-confirm-no:hover { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.35); color: #fff; }
+
         /* ── Buttons / footer ── */
         #new-game-btn {
             margin-top: 8px;
@@ -533,6 +567,24 @@
             #win-msg { font-size: 2.2rem; }
         }
 
+        /* ── Mute button ── */
+        #mute-btn {
+            position: fixed;
+            top: 14px; right: 14px;
+            width: 40px; height: 40px;
+            border-radius: 50%;
+            border: 2px solid rgba(255,255,255,0.12);
+            background: rgba(255,255,255,0.06);
+            color: #aaa; font-size: 1.15rem;
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            transition: all 0.2s;
+            z-index: 500;
+            padding: 0;
+        }
+        #mute-btn:hover { background: rgba(255,255,255,0.14); border-color: rgba(255,255,255,0.28); }
+        #mute-btn.muted { color: #444; border-color: rgba(255,255,255,0.06); background: rgba(0,0,0,0.1); }
+
         /* Opponent-left card back button */
         .back-btn {
             margin-top: 24px; padding: 12px 32px;
@@ -547,6 +599,7 @@
 <body>
 
 <canvas id="starfield"></canvas>
+<button id="mute-btn" onclick="toggleMute()" title="Toggle sound">🔊</button>
 
 <!-- ═══════════ LOBBY OVERLAY ═══════════ -->
 <div id="lobby-overlay" class="screen-overlay">
@@ -636,7 +689,19 @@
     </div>
 </div>
 
-<button id="new-game-btn" onclick="handleNewGame()">↺ New Game</button>
+<button id="new-game-btn" onclick="handleNewGame()">☰ Main Menu</button>
+
+<!-- ═══════════ MAIN MENU CONFIRM ═══════════ -->
+<div id="menu-confirm-overlay">
+    <div id="menu-confirm-box">
+        <div id="menu-confirm-msg">Go to Main Menu?</div>
+        <div id="menu-confirm-sub"></div>
+        <div class="menu-confirm-btns">
+            <button id="menu-confirm-yes" onclick="confirmGoToMenu()">Leave</button>
+            <button id="menu-confirm-no" onclick="closeMenuConfirm()">Keep Playing</button>
+        </div>
+    </div>
+</div>
 
 <p class="rules">
     <span>Click a column to drop</span><span class="rule-sep"> &nbsp;·&nbsp; </span><span>Full Rows and Columns vanish like Tetris</span><span class="rule-sep"> &nbsp;·&nbsp; </span><span>Get 4 in a row to win</span>
@@ -673,6 +738,106 @@ function boardGeom() {
     const board = document.getElementById('board');
     const boardTop = board ? board.getBoundingClientRect().top - wrap.getBoundingClientRect().top : cell + 20;
     return { cell, gap, pad, stride, boardTop };
+}
+
+/* ═══════════════════════════════════════════════════
+   AUDIO
+   ═══════════════════════════════════════════════════ */
+let audioCtx = null;
+let muted = false;
+
+function getCtx() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+}
+
+function playDrop(dur) {
+    if (muted) return;
+    const ctx = getCtx(), t = ctx.currentTime;
+    const osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(600, t);
+    osc.frequency.exponentialRampToValueAtTime(180, t + dur);
+    gain.gain.setValueAtTime(0.12, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    osc.start(t); osc.stop(t + dur + 0.02);
+}
+
+function playLand() {
+    if (muted) return;
+    const ctx = getCtx(), t = ctx.currentTime;
+    const bufLen = Math.ceil(ctx.sampleRate * 0.06);
+    const buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / bufLen);
+    const noise = ctx.createBufferSource();
+    noise.buffer = buf;
+    const nf = ctx.createBiquadFilter(); nf.type = 'lowpass'; nf.frequency.value = 380;
+    const ng = ctx.createGain(); ng.gain.setValueAtTime(0.22, t); ng.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
+    noise.connect(nf); nf.connect(ng); ng.connect(ctx.destination);
+    noise.start(t); noise.stop(t + 0.08);
+    const osc = ctx.createOscillator(), gn = ctx.createGain();
+    osc.type = 'sine'; osc.frequency.setValueAtTime(110, t); osc.frequency.exponentialRampToValueAtTime(55, t + 0.08);
+    gn.gain.setValueAtTime(0.16, t); gn.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+    osc.connect(gn); gn.connect(ctx.destination);
+    osc.start(t); osc.stop(t + 0.12);
+}
+
+function playClear() {
+    if (muted) return;
+    const ctx = getCtx(), t = ctx.currentTime;
+    const osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(320, t); osc.frequency.exponentialRampToValueAtTime(1600, t + 0.28);
+    gain.gain.setValueAtTime(0.09, t); gain.gain.exponentialRampToValueAtTime(0.001, t + 0.32);
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.start(t); osc.stop(t + 0.34);
+}
+
+function playFlip() {
+    if (muted) return;
+    const ctx = getCtx(), t = ctx.currentTime;
+    const o1 = ctx.createOscillator(), g1 = ctx.createGain();
+    o1.type = 'sine'; o1.frequency.setValueAtTime(90, t); o1.frequency.exponentialRampToValueAtTime(42, t + 0.5);
+    g1.gain.setValueAtTime(0.22, t); g1.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+    o1.connect(g1); g1.connect(ctx.destination); o1.start(t); o1.stop(t + 0.55);
+    const o2 = ctx.createOscillator(), g2 = ctx.createGain();
+    o2.type = 'sawtooth'; o2.frequency.setValueAtTime(500, t); o2.frequency.exponentialRampToValueAtTime(2200, t + 0.22);
+    g2.gain.setValueAtTime(0.07, t); g2.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+    o2.connect(g2); g2.connect(ctx.destination); o2.start(t); o2.stop(t + 0.3);
+}
+
+function playTilt() {
+    if (muted) return;
+    const ctx = getCtx(), t = ctx.currentTime;
+    const osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(220, t); osc.frequency.exponentialRampToValueAtTime(110, t + 0.42);
+    gain.gain.setValueAtTime(0.18, t); gain.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.start(t); osc.stop(t + 0.5);
+}
+
+function playWin() {
+    if (muted) return;
+    const ctx = getCtx();
+    [523, 659, 784, 1047].forEach((freq, i) => {
+        const t = ctx.currentTime + i * 0.13;
+        const osc = ctx.createOscillator(), gain = ctx.createGain();
+        osc.type = 'triangle'; osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.18, t); gain.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.start(t); osc.stop(t + 0.3);
+    });
+}
+
+function toggleMute() {
+    muted = !muted;
+    const btn = document.getElementById('mute-btn');
+    btn.textContent = muted ? '🔇' : '🔊';
+    btn.classList.toggle('muted', muted);
 }
 
 /* ═══════════════════════════════════════════════════
@@ -770,11 +935,23 @@ function handleClick(r, c) {
 }
 
 function handleNewGame() {
-    if (isOnline) {
-        goToLobby();
-    } else {
-        newGame();
-    }
+    showMenuConfirm();
+}
+
+function showMenuConfirm() {
+    document.getElementById('menu-confirm-sub').textContent = isOnline
+        ? 'You will leave your room.'
+        : 'Your current game will be lost.';
+    document.getElementById('menu-confirm-overlay').classList.add('show');
+}
+
+function closeMenuConfirm() {
+    document.getElementById('menu-confirm-overlay').classList.remove('show');
+}
+
+function confirmGoToMenu() {
+    closeMenuConfirm();
+    goToLobby();
 }
 
 function handlePlayAgain() {
@@ -1012,6 +1189,7 @@ function triggerEvent(action, callback) {
     const board = document.getElementById('board');
 
     if (action === 'flip') {
+        playFlip();
         const PHASE = 245;
         const a = ((boardAngle % 360) + 360) % 360;
 
@@ -1053,6 +1231,7 @@ function triggerEvent(action, callback) {
 
     } else {
         // Tilt: board rotates to new angle and STAYS there — no return to 0°
+        playTilt();
         const TILT_IN_MS  = 370;
         const targetAngle = boardAngle + (action === 'tilt-right' ? 90 : -90);
 
@@ -1115,6 +1294,7 @@ function showGravityDrops(callback, angleOverride) {
 
     const allOverlays = [];
     let   maxEnd      = 0;
+    let   settleIdx   = 0;
 
     for (const { fromR, fromC, toR, toC, color } of moves) {
         document.getElementById(`c${fromR}_${fromC}`).classList.remove('red', 'blue');
@@ -1159,6 +1339,7 @@ function showGravityDrops(callback, angleOverride) {
         const endMs = dur * 1000 + 80;
         if (endMs > maxEnd) maxEnd = endMs;
         allOverlays.push(overlay);
+        if (settleIdx < 6) { setTimeout(playLand, endMs - 80); settleIdx++; }
     }
 
     setTimeout(() => {
@@ -1183,6 +1364,7 @@ function showColumnGravityDrops(targetAngle, finalGrid, callback) {
 
     const allOverlays = [];
     let   maxEnd      = 0;
+    let   settleIdx   = 0;
 
     for (let r = 0; r < ROWS; r++) {
         const srcPieces = [], dstPieces = [];
@@ -1230,6 +1412,7 @@ function showColumnGravityDrops(targetAngle, finalGrid, callback) {
             const endMs = dur * 1000 + 80;
             if (endMs > maxEnd) maxEnd = endMs;
             allOverlays.push(overlay);
+            if (settleIdx < 6) { setTimeout(playLand, endMs - 80); settleIdx++; }
         }
     }
 
@@ -1363,6 +1546,7 @@ function drop(clickedR, clickedC) {
                 fullCols.push(c);
 
         if (fullRows.length > 0 || fullCols.length > 0) {
+            playClear();
             renderAll([], fullRows, fullCols);
             setTimeout(() => {
                 // Clear full rows and columns in place, then re-settle via current gravity.
@@ -1454,9 +1638,10 @@ function animateFall(targetRow, targetCol, player, callback) {
     piece.getBoundingClientRect();
     piece.style.transition = `${prop} ${dur}s ease-in`;
     piece.style[prop] = `${endVal}px`;
+    playDrop(parseFloat(dur));
 
     const finish = () => {
-        if (done) return; done = true; piece.remove(); callback();
+        if (done) return; done = true; piece.remove(); playLand(); callback();
     };
     piece.addEventListener('transitionend', finish, { once: true });
     setTimeout(finish, (parseFloat(dur) + 0.15) * 1000);
@@ -1563,6 +1748,7 @@ function winMessage(winner, loser) {
 }
 
 function showWinModal(type, msg, sub) {
+    if (type !== 'draw') playWin();
     document.getElementById('win-box').className    = type;
     document.getElementById('win-msg').textContent  = msg;
     document.getElementById('win-sub').textContent  = sub;
@@ -1604,8 +1790,6 @@ function connectSocket() {
         document.getElementById('color-badge').textContent =
             `You are playing as ${color === RED ? '🔴 Red' : '🔵 Blue'}`;
         document.getElementById('color-badge').style.display = 'block';
-        // Update new-game button to "Leave"
-        document.getElementById('new-game-btn').textContent = '← Leave Room';
     });
 
     socket.on('move', data => drop(data.r, data.c)); // server echoes moves to both players
@@ -1674,7 +1858,6 @@ function goToLobby() {
     scores[BLUE] = 0;
     updateScores();
     document.getElementById('color-badge').style.display = 'none';
-    document.getElementById('new-game-btn').textContent  = '↺ New Game';
     document.getElementById('opp-left-overlay').style.display = 'none';
     document.getElementById('win-overlay').classList.remove('show');
     // Strip room code from URL
